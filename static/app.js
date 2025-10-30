@@ -52,6 +52,38 @@ function getPnLClass(value) {
     return 'pnl-neutral';
 }
 
+// Show offline mode banner
+function showOfflineMode(lastUpdated) {
+    let banner = document.getElementById('offline-banner');
+
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'offline-banner';
+        banner.className = 'offline-banner';
+
+        const container = document.querySelector('.container');
+        container.insertBefore(banner, container.firstChild);
+    }
+
+    const timeAgo = lastUpdated ? `Last updated: ${new Date(lastUpdated).toLocaleString()}` : 'Using cached data';
+
+    banner.innerHTML = `
+        <div class="offline-content">
+            <span class="offline-icon">⚠️</span>
+            <span class="offline-text">Offline Mode - ${timeAgo}</span>
+        </div>
+    `;
+    banner.style.display = 'block';
+}
+
+// Hide offline mode banner
+function hideOfflineMode() {
+    const banner = document.getElementById('offline-banner');
+    if (banner) {
+        banner.style.display = 'none';
+    }
+}
+
 // Check API health
 async function checkHealth() {
     try {
@@ -193,6 +225,8 @@ async function loadPositions() {
 
         const positions = result.data || [];
         const summary = result.summary || {};
+        const fromCache = result.from_cache || false;
+        const cacheInfo = result.cache_info || null;
 
         countEl.textContent = positions.length;
         totalPositionsEl.textContent = formatNumber(positions.length);
@@ -201,6 +235,13 @@ async function loadPositions() {
         const totalPnl = summary.total_pnl || 0;
         totalPnlEl.textContent = formatCurrency(totalPnl);
         totalPnlEl.className = `summary-value ${getPnLClass(totalPnl)}`;
+
+        // Show offline mode indicator if using cached data
+        if (fromCache && cacheInfo) {
+            showOfflineMode(cacheInfo.last_updated);
+        } else {
+            hideOfflineMode();
+        }
 
         if (positions.length === 0) {
             emptyEl.style.display = 'block';

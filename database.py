@@ -73,6 +73,45 @@ class TradingDatabase:
                 ON trades(timestamp)
             """)
 
+            # Positions table (snapshots over time)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS positions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tradingsymbol TEXT NOT NULL,
+                    exchange TEXT,
+                    product TEXT,
+                    quantity INTEGER NOT NULL,
+                    average_price REAL NOT NULL,
+                    last_price REAL NOT NULL,
+                    pnl REAL DEFAULT 0,
+                    unrealised REAL DEFAULT 0,
+                    realised REAL DEFAULT 0,
+                    multiplier REAL DEFAULT 1,
+                    is_open INTEGER DEFAULT 1,
+                    snapshot_date TEXT NOT NULL,
+                    snapshot_timestamp TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Create index on snapshot_timestamp for latest positions
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_positions_timestamp
+                ON positions(snapshot_timestamp)
+            """)
+
+            # Create index on symbol for querying position history
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_positions_symbol
+                ON positions(tradingsymbol, snapshot_date)
+            """)
+
+            # Create index on is_open for filtering open positions
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_positions_open
+                ON positions(is_open)
+            """)
+
             # Daily snapshots table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS daily_snapshots (
@@ -191,6 +230,139 @@ class TradingDatabase:
 
             rows = cursor.fetchall()
             return {row["trade_date"]: row["count"] for row in rows}
+
+    def save_positions(self, positions: List[Dict], snapshot_timestamp: str = None) -> int:
+        """
+        Save position snapshots to database.
+
+        Args:
+            positions: List of position dictionaries
+            snapshot_timestamp: ISO timestamp for this snapshot (defaults to now)
+
+        Returns:
+            Number of positions inserted
+        """
+        if not positions:
+            return 0
+
+        from datetime import datetime
+        if not snapshot_timestamp:
+            snapshot_timestamp = datetime.now().isoformat()
+
+        snapshot_date = snapshot_timestamp.split('T')[0]
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            inserted = 0
+
+            for position in positions:
+                try:
+                    is_open = 1 if position.get("quantity", 0) != 0 else 0
+
+                    cursor.execute("""
+                        INSERT INTO positions
+                        (tradingsymbol, exchange, product, quantity, average_price,
+                         last_price, pnl, unrealised, realised, multiplier,
+                         is_open, snapshot_date, snapshot_timestamp)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        position.get("tradingsymbol"),
+                        position.get("exchange"),
+                        position.get("product"),
+                        position.get("quantity", 0),
+                        position.get("average_price", 0),
+                        position.get("last_price", 0),
+                        position.get("pnl", 0),
+                        position.get("unrealised", 0),
+                        position.get("realised", 0),
+                        position.get("multiplier", 1),
+                        is_open,
+                        snapshot_date,
+                        snapshot_timestamp
+                    ))
+                    inserted += 1
+                except Exception as e:
+                    print(f"Error saving position {position.get('tradingsymbol')}: {e}")
+
+            return inserted
+
+    def get_latest_positions(self) -> List[Dict]:
+        """Get the most recent position snapshot for all symbols."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Get the latest snapshot timestamp
+            cursor.execute("""
+                SELECT MAX(snapshot_timestamp) as latest
+                FROM positions
+            """)
+            row = cursor.fetchone()
+            latest_timestamp = row["latest"] if row else None
+
+            if not latest_timestamp:
+                return []
+
+            # Get all positions from that snapshot
+            cursor.execute("""
+                SELECT * FROM positions
+                WHERE snapshot_timestamp = ?
+                ORDER BY tradingsymbol
+            """, (latest_timestamp,))
+
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    def get_open_positions(self) -> List[Dict]:
+        """Get latest snapshot of all open positions (quantity != 0)."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Get the latest snapshot timestamp
+            cursor.execute("""
+                SELECT MAX(snapshot_timestamp) as latest
+                FROM positions
+            """)
+            row = cursor.fetchone()
+            latest_timestamp = row["latest"] if row else None
+
+            if not latest_timestamp:
+                return []
+
+            # Get open positions from latest snapshot
+            cursor.execute("""
+                SELECT * FROM positions
+                WHERE snapshot_timestamp = ?
+                AND is_open = 1
+                ORDER BY tradingsymbol
+            """, (latest_timestamp,))
+
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    def get_position_history(self, tradingsymbol: str, days: int = 30) -> List[Dict]:
+        """Get position history for a specific symbol."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM positions
+                WHERE tradingsymbol = ?
+                AND snapshot_date >= date('now', '-' || ? || ' days')
+                ORDER BY snapshot_timestamp DESC
+            """, (tradingsymbol, days))
+
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    def get_latest_snapshot_timestamp(self) -> Optional[str]:
+        """Get the timestamp of the most recent position snapshot."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT MAX(snapshot_timestamp) as latest
+                FROM positions
+            """)
+            row = cursor.fetchone()
+            return row["latest"] if row else None
 
     def save_daily_snapshot(self, snapshot_date: str, account_value: float,
                            total_pnl: float = 0, realized_pnl: float = 0,

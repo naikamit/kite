@@ -142,21 +142,67 @@ class KiteClient:
                 "error": str(e)
             }
 
+    def sync_positions(self) -> Dict:
+        """
+        Sync positions from Kite API to database.
+
+        Returns:
+            Dict with sync statistics
+        """
+        try:
+            # Fetch all positions from Kite API
+            positions_data = self.kite.positions()
+            net_positions = positions_data.get("net", [])
+
+            # Process and prepare positions for database
+            positions_to_save = []
+            for position in net_positions:
+                positions_to_save.append({
+                    "tradingsymbol": position.get("tradingsymbol"),
+                    "exchange": position.get("exchange"),
+                    "quantity": position.get("quantity", 0),
+                    "average_price": position.get("average_price", 0),
+                    "last_price": position.get("last_price", 0),
+                    "pnl": position.get("pnl", 0),
+                    "unrealised": position.get("unrealised", 0),
+                    "realised": position.get("realised", 0),
+                    "product": position.get("product"),
+                    "multiplier": position.get("multiplier", 1),
+                })
+
+            # Save to database with current timestamp
+            snapshot_timestamp = datetime.now().isoformat()
+            saved_count = self.db.save_positions(positions_to_save, snapshot_timestamp)
+
+            return {
+                "success": True,
+                "positions_saved": saved_count,
+                "snapshot_timestamp": snapshot_timestamp
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
     def get_positions(self) -> Dict:
         """
-        Fetch current open positions with P&L.
+        Fetch current open positions with P&L (with offline fallback).
 
         Returns:
             Dict containing positions and P&L data
         """
+        api_success = False
+        processed_positions = []
+        from_cache = False
+
+        # Try to fetch from API and sync to database
         try:
             positions = self.kite.positions()
-
-            # Process day positions (more relevant for intraday)
-            day_positions = positions.get("day", [])
             net_positions = positions.get("net", [])
 
-            processed_positions = []
+            # Process positions
             for position in net_positions:
                 if position.get("quantity", 0) != 0:  # Only include open positions
                     processed_position = {
@@ -173,24 +219,63 @@ class KiteClient:
                     }
                     processed_positions.append(processed_position)
 
-            # Calculate total P&L
-            total_pnl = sum(pos.get("pnl", 0) for pos in processed_positions)
-            total_unrealised = sum(pos.get("unrealised", 0) for pos in processed_positions)
+            # Save to database
+            sync_result = self.sync_positions()
+            api_success = True
 
-            return {
-                "success": True,
-                "data": processed_positions,
-                "summary": {
-                    "total_pnl": total_pnl,
-                    "total_unrealised": total_unrealised,
-                    "position_count": len(processed_positions)
-                }
-            }
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
+            print(f"⚠️ Kite API unavailable: {e}")
+            print("📂 Falling back to cached positions from database...")
+
+            # Fallback to database
+            try:
+                db_positions = self.db.get_open_positions()
+                from_cache = True
+
+                for db_pos in db_positions:
+                    processed_positions.append({
+                        "tradingsymbol": db_pos.get("tradingsymbol"),
+                        "exchange": db_pos.get("exchange"),
+                        "quantity": db_pos.get("quantity"),
+                        "average_price": db_pos.get("average_price"),
+                        "last_price": db_pos.get("last_price"),
+                        "pnl": db_pos.get("pnl"),
+                        "unrealised": db_pos.get("unrealised"),
+                        "realised": db_pos.get("realised"),
+                        "product": db_pos.get("product"),
+                        "multiplier": db_pos.get("multiplier", 1),
+                    })
+
+            except Exception as db_error:
+                return {
+                    "success": False,
+                    "error": f"API and database both failed. API: {str(e)}, DB: {str(db_error)}"
+                }
+
+        # Calculate total P&L
+        total_pnl = sum(pos.get("pnl", 0) for pos in processed_positions)
+        total_unrealised = sum(pos.get("unrealised", 0) for pos in processed_positions)
+
+        result = {
+            "success": True,
+            "data": processed_positions,
+            "summary": {
+                "total_pnl": total_pnl,
+                "total_unrealised": total_unrealised,
+                "position_count": len(processed_positions)
+            },
+            "from_cache": from_cache
+        }
+
+        # Add cache info if using offline data
+        if from_cache:
+            last_sync = self.db.get_latest_snapshot_timestamp()
+            result["cache_info"] = {
+                "last_updated": last_sync,
+                "offline_mode": True
             }
+
+        return result
 
     def get_holdings(self) -> Dict:
         """

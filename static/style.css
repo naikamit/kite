@@ -104,6 +104,29 @@ body {
     50% { opacity: 0.5; }
 }
 
+/* Offline Mode Banner */
+.offline-banner {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid var(--warning);
+    border-radius: 8px;
+    padding: 12px 20px;
+    margin-bottom: 20px;
+    display: none;
+}
+
+.offline-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--warning);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.offline-icon {
+    font-size: 18px;
+}
+
 /* Buttons */
 .btn {
     display: inline-flex;
