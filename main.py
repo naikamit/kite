@@ -248,6 +248,138 @@ async def get_analytics():
     return result
 
 
+@app.post("/api/cash-flow")
+async def add_cash_flow(request: Request):
+    """
+    Add a cash flow entry (deposit/withdrawal).
+
+    Body: {
+        "date": "2025-10-30",
+        "amount": 10000,
+        "type": "deposit" or "withdrawal",
+        "description": "Optional description"
+    }
+    """
+    if not kite_client:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Kite client not initialized"}
+        )
+
+    try:
+        data = await request.json()
+        flow_date = data.get("date")
+        amount = float(data.get("amount", 0))
+        flow_type = data.get("type", "deposit")
+        description = data.get("description", "")
+
+        # Validate inputs
+        if not flow_date or amount == 0:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": "date and amount are required"}
+            )
+
+        if flow_type not in ["deposit", "withdrawal"]:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": "type must be 'deposit' or 'withdrawal'"}
+            )
+
+        # For withdrawals, make amount negative
+        if flow_type == "withdrawal" and amount > 0:
+            amount = -amount
+
+        # Save to database
+        kite_client.db.save_cash_flow(flow_date, amount, flow_type, description)
+
+        return {
+            "success": True,
+            "message": f"{flow_type.capitalize()} of ₹{abs(amount)} recorded for {flow_date}"
+        }
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@app.post("/api/snapshot")
+async def create_snapshot(request: Request):
+    """
+    Create or update a daily snapshot.
+
+    Body: {
+        "date": "2025-10-30",
+        "account_value": 105000,
+        "total_pnl": 5000,
+        "realized_pnl": 3000,
+        "unrealized_pnl": 2000,
+        "trade_count": 10,
+        "position_count": 3
+    }
+    """
+    if not kite_client:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Kite client not initialized"}
+        )
+
+    try:
+        data = await request.json()
+        snapshot_date = data.get("date")
+        account_value = float(data.get("account_value", 0))
+
+        if not snapshot_date or account_value == 0:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": "date and account_value are required"}
+            )
+
+        # Save snapshot
+        kite_client.db.save_daily_snapshot(
+            snapshot_date=snapshot_date,
+            account_value=account_value,
+            total_pnl=float(data.get("total_pnl", 0)),
+            realized_pnl=float(data.get("realized_pnl", 0)),
+            unrealized_pnl=float(data.get("unrealized_pnl", 0)),
+            trade_count=int(data.get("trade_count", 0)),
+            position_count=int(data.get("position_count", 0))
+        )
+
+        return {
+            "success": True,
+            "message": f"Snapshot saved for {snapshot_date}"
+        }
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@app.get("/api/sync-trades")
+async def sync_trades():
+    """Manually trigger trade sync from Kite API to database."""
+    if not kite_client:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Kite client not initialized"}
+        )
+
+    result = kite_client.sync_trades()
+
+    if not result.get("success"):
+        return JSONResponse(
+            status_code=500,
+            content=result
+        )
+
+    return result
+
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8001))
     print(f"🚀 Starting Kite Connect Analytics Dashboard on port {port}...")

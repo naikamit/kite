@@ -1,6 +1,12 @@
 # Environment variables
 .env
 
+# Database
+data/*.db
+data/*.db-journal
+data/*.db-shm
+data/*.db-wal
+
 # Python
 __pycache__/
 *.py[cod]

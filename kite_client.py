@@ -1,10 +1,11 @@
 """Kite Connect API wrapper for fetching trades and positions."""
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from kiteconnect import KiteConnect
 from dotenv import load_dotenv
+from database import TradingDatabase
 
 # Load environment variables
 load_dotenv()
@@ -23,6 +24,9 @@ class KiteClient:
 
         self.kite = KiteConnect(api_key=self.api_key)
         self.kite.set_access_token(self.access_token)
+
+        # Initialize database
+        self.db = TradingDatabase()
 
     def get_profile(self) -> Dict:
         """
@@ -43,43 +47,94 @@ class KiteClient:
                 "error": str(e)
             }
 
+    def sync_trades(self) -> Dict:
+        """
+        Sync trades from Kite API to database (incremental).
+
+        Returns:
+            Dict with sync statistics
+        """
+        try:
+            # Fetch all trades from Kite API
+            # Note: Kite API doesn't support date filtering, so we get all trades
+            api_trades = self.kite.trades()
+
+            # Process and prepare trades for database
+            trades_to_save = []
+            for trade in api_trades:
+                timestamp = trade.get('order_timestamp', trade.get('fill_timestamp'))
+                if timestamp:
+                    trade_date = datetime.fromisoformat(str(timestamp)).date()
+
+                    trades_to_save.append({
+                        "trade_id": trade.get("trade_id"),
+                        "order_id": trade.get("order_id"),
+                        "tradingsymbol": trade.get("tradingsymbol"),
+                        "exchange": trade.get("exchange"),
+                        "transaction_type": trade.get("transaction_type"),
+                        "quantity": trade.get("quantity"),
+                        "price": trade.get("average_price", trade.get("price")),
+                        "product": trade.get("product"),
+                        "timestamp": str(timestamp),
+                        "trade_date": str(trade_date)
+                    })
+
+            # Save to database (will ignore duplicates)
+            new_count = self.db.save_trades(trades_to_save)
+            total_count = self.db.get_total_trade_count()
+
+            return {
+                "success": True,
+                "new_trades": new_count,
+                "total_trades": total_count,
+                "synced_at": datetime.now().isoformat()
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
     def get_todays_trades(self) -> Dict:
         """
-        Fetch all trades from today.
+        Fetch today's trades from database (with auto-sync).
 
         Returns:
             Dict containing list of today's trades
         """
         try:
-            trades = self.kite.trades()
+            # First, sync new trades from API
+            sync_result = self.sync_trades()
+            if not sync_result.get("success"):
+                print(f"Warning: Trade sync failed: {sync_result.get('error')}")
 
-            # Filter for today's trades
-            today = datetime.now().date()
-            todays_trades = [
-                trade for trade in trades
-                if datetime.fromisoformat(str(trade.get('order_timestamp', trade.get('fill_timestamp')))).date() == today
-            ]
+            # Get today's date
+            today = str(datetime.now().date())
 
-            # Calculate P&L for each trade
+            # Fetch today's trades from database
+            db_trades = self.db.get_trades_for_date(today)
+
+            # Format trades for API response
             processed_trades = []
-            for trade in todays_trades:
-                processed_trade = {
+            for trade in db_trades:
+                processed_trades.append({
                     "tradingsymbol": trade.get("tradingsymbol"),
                     "exchange": trade.get("exchange"),
                     "transaction_type": trade.get("transaction_type"),
                     "quantity": trade.get("quantity"),
-                    "price": trade.get("average_price", trade.get("price")),
+                    "price": trade.get("price"),
                     "order_id": trade.get("order_id"),
                     "trade_id": trade.get("trade_id"),
-                    "timestamp": str(trade.get("order_timestamp", trade.get("fill_timestamp"))),
+                    "timestamp": trade.get("timestamp"),
                     "product": trade.get("product"),
-                }
-                processed_trades.append(processed_trade)
+                })
 
             return {
                 "success": True,
                 "data": processed_trades,
-                "count": len(processed_trades)
+                "count": len(processed_trades),
+                "synced": sync_result.get("new_trades", 0) if sync_result.get("success") else None
             }
         except Exception as e:
             return {
@@ -200,7 +255,7 @@ class KiteClient:
 
     def get_analytics(self) -> Dict:
         """
-        Get analytics data for dashboard charts.
+        Get analytics data for dashboard charts from database.
 
         Returns:
             Dict containing analytics data including:
@@ -210,9 +265,6 @@ class KiteClient:
             - Max drawdown
         """
         try:
-            from datetime import datetime, timedelta
-            import random
-
             # Get current positions and calculate total P&L
             positions_result = self.get_positions()
             if not positions_result.get("success"):
@@ -227,45 +279,63 @@ class KiteClient:
             funds_data = funds_result.get("data", {}) if funds_result.get("success") else {}
             opening_balance = funds_data.get("opening_balance", 100000)  # Default if not available
 
-            # Generate sample data for the last 30 days
-            # In a real scenario, you'd store this data in a database
+            # Generate date range for last 30 days
             today = datetime.now().date()
             dates = []
-            daily_pnl = []
-            account_values = []
-            cash_flow = []
-
-            # Starting values
-            base_value = opening_balance
-            cumulative_pnl = 0
-
             for i in range(30, -1, -1):
                 date = today - timedelta(days=i)
                 dates.append(date.strftime("%Y-%m-%d"))
 
-                # Generate sample daily P&L (replace with real data from database)
-                if i == 0:
-                    # Today's P&L is the actual current P&L
+            # Get daily snapshots from database
+            db_snapshots = self.db.get_daily_snapshots(days=30)
+            snapshots_by_date = {snap["snapshot_date"]: snap for snap in db_snapshots}
+
+            # Get cash flow from database
+            db_cash_flow = self.db.get_daily_cash_flow_totals(days=30)
+
+            # Get daily P&L from database (calculated from trades)
+            db_daily_pnl = self.db.calculate_daily_pnl(days=30)
+
+            # Build arrays for charts
+            daily_pnl = []
+            account_values = []
+            cash_flow = []
+
+            base_value = opening_balance
+            cumulative_pnl = 0
+
+            for date_str in dates:
+                # Get P&L for this date
+                if date_str in db_daily_pnl:
+                    pnl = db_daily_pnl[date_str]
+                elif date_str == str(today):
+                    # Today's P&L from current positions
                     pnl = current_pnl
                 else:
-                    # Historical P&L (simulated - you should store this in a database)
-                    pnl = random.uniform(-5000, 8000)
+                    # No data for this date
+                    pnl = 0
 
                 daily_pnl.append(round(pnl, 2))
                 cumulative_pnl += pnl
 
-                # Account value = base + cumulative P&L
-                account_value = base_value + cumulative_pnl
+                # Get account value (use snapshot if available, otherwise calculate)
+                if date_str in snapshots_by_date:
+                    account_value = snapshots_by_date[date_str]["account_value"]
+                else:
+                    account_value = base_value + cumulative_pnl
+
                 account_values.append(round(account_value, 2))
 
-                # Cash flow (simulated deposits/withdrawals - should come from database)
-                if i % 10 == 0 and i != 0:
-                    cash_flow.append(random.choice([0, 10000, -5000, 20000, 0]))
-                else:
-                    cash_flow.append(0)
+                # Get cash flow for this date
+                cash_flow_amount = db_cash_flow.get(date_str, 0)
+                cash_flow.append(round(cash_flow_amount, 2))
+
+                # Adjust base value if there's cash flow
+                if cash_flow_amount != 0:
+                    base_value += cash_flow_amount
 
             # Calculate max drawdown
-            peak = account_values[0]
+            peak = account_values[0] if account_values else base_value
             max_drawdown = 0
 
             for value in account_values:
@@ -287,7 +357,8 @@ class KiteClient:
                     "cash_flow": cash_flow,
                     "max_drawdown": round(max_drawdown, 2),
                     "max_live_loss": round(max_live_loss, 2),
-                    "current_value": account_values[-1] if account_values else base_value
+                    "current_value": account_values[-1] if account_values else base_value,
+                    "has_historical_data": len(db_snapshots) > 0 or len(db_daily_pnl) > 0
                 }
             }
         except Exception as e:
