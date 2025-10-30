@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kite Connect Analytics Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1>Kite Connect Analytics</h1>
+                <div class="header-actions">
+                    <span id="connection-status" class="status-indicator">
+                        <span class="status-dot"></span>
+                        <span class="status-text">Connecting...</span>
+                    </span>
+                    <button id="refresh-btn" class="btn btn-primary">
+                        <span class="btn-icon">↻</span>
+                        Refresh
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- User Profile Card -->
+        <div id="profile-card" class="card profile-card" style="display: none;">
+            <div class="card-header">
+                <h2>Account Information</h2>
+            </div>
+            <div class="card-body">
+                <div class="profile-info">
+                    <div class="profile-item">
+                        <span class="profile-label">User ID:</span>
+                        <span id="user-id" class="profile-value">-</span>
+                    </div>
+                    <div class="profile-item">
+                        <span class="profile-label">Name:</span>
+                        <span id="user-name" class="profile-value">-</span>
+                    </div>
+                    <div class="profile-item">
+                        <span class="profile-label">Email:</span>
+                        <span id="user-email" class="profile-value">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="summary-grid">
+            <div class="card summary-card">
+                <div class="summary-icon">📊</div>
+                <div class="summary-content">
+                    <div class="summary-label">Today's Trades</div>
+                    <div id="total-trades" class="summary-value">-</div>
+                </div>
+            </div>
+            <div class="card summary-card">
+                <div class="summary-icon">📈</div>
+                <div class="summary-content">
+                    <div class="summary-label">Open Positions</div>
+                    <div id="total-positions" class="summary-value">-</div>
+                </div>
+            </div>
+            <div class="card summary-card">
+                <div class="summary-icon">💰</div>
+                <div class="summary-content">
+                    <div class="summary-label">Total P&L</div>
+                    <div id="total-pnl" class="summary-value pnl-neutral">₹ -</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trades Section -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Today's Trades</h2>
+                <span id="trades-count" class="badge">0</span>
+            </div>
+            <div class="card-body">
+                <div id="trades-loading" class="loading">
+                    <div class="spinner"></div>
+                    <p>Loading trades...</p>
+                </div>
+                <div id="trades-error" class="error-message" style="display: none;"></div>
+                <div id="trades-empty" class="empty-state" style="display: none;">
+                    <p>No trades found for today</p>
+                </div>
+                <div id="trades-table-container" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Type</th>
+                                    <th>Quantity</th>
+                                    <th>Price</th>
+                                    <th>Time</th>
+                                    <th>Product</th>
+                                </tr>
+                            </thead>
+                            <tbody id="trades-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Positions Section -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Current Positions</h2>
+                <span id="positions-count" class="badge">0</span>
+            </div>
+            <div class="card-body">
+                <div id="positions-loading" class="loading">
+                    <div class="spinner"></div>
+                    <p>Loading positions...</p>
+                </div>
+                <div id="positions-error" class="error-message" style="display: none;"></div>
+                <div id="positions-empty" class="empty-state" style="display: none;">
+                    <p>No open positions</p>
+                </div>
+                <div id="positions-grid" class="positions-grid" style="display: none;">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
