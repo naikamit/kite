@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kite Connect Analytics Dashboard</title>
     <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -70,6 +71,46 @@
                     <div class="summary-label">Total P&L</div>
                     <div id="total-pnl" class="summary-value pnl-neutral">₹ -</div>
                 </div>
+            </div>
+            <div class="card summary-card">
+                <div class="summary-icon">📉</div>
+                <div class="summary-content">
+                    <div class="summary-label">Max Drawdown</div>
+                    <div id="max-drawdown" class="summary-value pnl-neutral">₹ -</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="charts-grid">
+            <!-- Account Value Chart -->
+            <div class="card chart-card">
+                <div class="card-header">
+                    <h2>Account Value Over Time</h2>
+                </div>
+                <div class="card-body">
+                    <canvas id="account-value-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Cash Flow Chart -->
+            <div class="card chart-card">
+                <div class="card-header">
+                    <h2>Cash Flow (Deposits & Withdrawals)</h2>
+                </div>
+                <div class="card-body">
+                    <canvas id="cash-flow-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Daily P&L Chart -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Daily Profit & Loss</h2>
+            </div>
+            <div class="card-body">
+                <canvas id="daily-pnl-chart"></canvas>
             </div>
         </div>
 

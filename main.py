@@ -208,6 +208,46 @@ async def get_holdings():
     return result
 
 
+@app.get("/api/funds")
+async def get_funds():
+    """Get account funds and margins."""
+    if not kite_client:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Kite client not initialized"}
+        )
+
+    result = kite_client.get_funds()
+
+    if not result.get("success"):
+        return JSONResponse(
+            status_code=500,
+            content=result
+        )
+
+    return result
+
+
+@app.get("/api/analytics")
+async def get_analytics():
+    """Get analytics data for charts and visualizations."""
+    if not kite_client:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Kite client not initialized"}
+        )
+
+    result = kite_client.get_analytics()
+
+    if not result.get("success"):
+        return JSONResponse(
+            status_code=500,
+            content=result
+        )
+
+    return result
+
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8001))
     print(f"🚀 Starting Kite Connect Analytics Dashboard on port {port}...")

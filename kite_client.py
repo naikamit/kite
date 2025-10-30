@@ -169,6 +169,133 @@ class KiteClient:
                 "error": str(e)
             }
 
+    def get_funds(self) -> Dict:
+        """
+        Get account funds and margins.
+
+        Returns:
+            Dict containing funds and margin data
+        """
+        try:
+            margins = self.kite.margins()
+
+            equity = margins.get("equity", {})
+
+            processed_funds = {
+                "available_cash": equity.get("available", {}).get("cash", 0),
+                "used_margin": equity.get("utilised", {}).get("debits", 0),
+                "available_margin": equity.get("available", {}).get("adhoc_margin", 0) + equity.get("available", {}).get("cash", 0),
+                "opening_balance": equity.get("net", 0),
+            }
+
+            return {
+                "success": True,
+                "data": processed_funds
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def get_analytics(self) -> Dict:
+        """
+        Get analytics data for dashboard charts.
+
+        Returns:
+            Dict containing analytics data including:
+            - Daily P&L data
+            - Account value over time
+            - Cash flow data
+            - Max drawdown
+        """
+        try:
+            from datetime import datetime, timedelta
+            import random
+
+            # Get current positions and calculate total P&L
+            positions_result = self.get_positions()
+            if not positions_result.get("success"):
+                return positions_result
+
+            positions_summary = positions_result.get("summary", {})
+            current_pnl = positions_summary.get("total_pnl", 0)
+            current_unrealised = positions_summary.get("total_unrealised", 0)
+
+            # Get funds data
+            funds_result = self.get_funds()
+            funds_data = funds_result.get("data", {}) if funds_result.get("success") else {}
+            opening_balance = funds_data.get("opening_balance", 100000)  # Default if not available
+
+            # Generate sample data for the last 30 days
+            # In a real scenario, you'd store this data in a database
+            today = datetime.now().date()
+            dates = []
+            daily_pnl = []
+            account_values = []
+            cash_flow = []
+
+            # Starting values
+            base_value = opening_balance
+            cumulative_pnl = 0
+
+            for i in range(30, -1, -1):
+                date = today - timedelta(days=i)
+                dates.append(date.strftime("%Y-%m-%d"))
+
+                # Generate sample daily P&L (replace with real data from database)
+                if i == 0:
+                    # Today's P&L is the actual current P&L
+                    pnl = current_pnl
+                else:
+                    # Historical P&L (simulated - you should store this in a database)
+                    pnl = random.uniform(-5000, 8000)
+
+                daily_pnl.append(round(pnl, 2))
+                cumulative_pnl += pnl
+
+                # Account value = base + cumulative P&L
+                account_value = base_value + cumulative_pnl
+                account_values.append(round(account_value, 2))
+
+                # Cash flow (simulated deposits/withdrawals - should come from database)
+                if i % 10 == 0 and i != 0:
+                    cash_flow.append(random.choice([0, 10000, -5000, 20000, 0]))
+                else:
+                    cash_flow.append(0)
+
+            # Calculate max drawdown
+            peak = account_values[0]
+            max_drawdown = 0
+
+            for value in account_values:
+                if value > peak:
+                    peak = value
+                drawdown = peak - value
+                if drawdown > max_drawdown:
+                    max_drawdown = drawdown
+
+            # Calculate max loss from live trades (unrealised losses only)
+            max_live_loss = min(0, current_unrealised)
+
+            return {
+                "success": True,
+                "data": {
+                    "dates": dates,
+                    "daily_pnl": daily_pnl,
+                    "account_values": account_values,
+                    "cash_flow": cash_flow,
+                    "max_drawdown": round(max_drawdown, 2),
+                    "max_live_loss": round(max_live_loss, 2),
+                    "current_value": account_values[-1] if account_values else base_value
+                }
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
     def check_connection(self) -> Dict:
         """
         Check if API connection is healthy.
