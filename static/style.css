@@ -127,6 +127,60 @@ body {
     font-size: 18px;
 }
 
+/* Update Notification Banner */
+.update-banner {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(16, 185, 129, 0.15));
+    border: 2px solid var(--accent-blue);
+    border-radius: 12px;
+    padding: 16px 24px;
+    margin-bottom: 24px;
+    animation: slideDown 0.4s ease-out;
+}
+
+.update-content {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.update-icon {
+    font-size: 24px;
+    animation: rotate 2s linear infinite;
+}
+
+.update-text {
+    flex: 1;
+    color: var(--text-primary);
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.update-actions {
+    display: flex;
+    gap: 12px;
+}
+
+@keyframes slideDown {
+    from {
+        transform: translateY(-20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+@keyframes rotate {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 /* Buttons */
 .btn {
     display: inline-flex;
@@ -158,6 +212,16 @@ body {
 .btn-primary:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+.btn-secondary {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover {
+    background: var(--bg-hover);
 }
 
 .btn-icon {

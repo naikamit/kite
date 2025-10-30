@@ -2,6 +2,8 @@
 
 // State management
 let isLoading = false;
+let currentVersion = null;
+let updateCheckInterval = null;
 
 // Toast notification system
 function showToast(message, type = 'success') {
@@ -82,6 +84,75 @@ function hideOfflineMode() {
     if (banner) {
         banner.style.display = 'none';
     }
+}
+
+// Check for app updates
+async function checkForUpdates() {
+    try {
+        const response = await fetch('/api/version');
+        const data = await response.json();
+
+        if (!currentVersion) {
+            // First load, store version
+            currentVersion = data.version;
+            return;
+        }
+
+        if (data.version !== currentVersion) {
+            // New version detected!
+            showUpdateNotification();
+            // Stop checking once update detected
+            if (updateCheckInterval) {
+                clearInterval(updateCheckInterval);
+            }
+        }
+    } catch (error) {
+        console.error('Update check failed:', error);
+    }
+}
+
+// Show update notification banner
+function showUpdateNotification() {
+    let banner = document.getElementById('update-banner');
+
+    if (banner) {
+        return; // Already showing
+    }
+
+    banner = document.createElement('div');
+    banner.id = 'update-banner';
+    banner.className = 'update-banner';
+
+    banner.innerHTML = `
+        <div class="update-content">
+            <span class="update-icon">🔄</span>
+            <span class="update-text">New version available! Reload to see latest changes.</span>
+            <div class="update-actions">
+                <button class="btn btn-primary" onclick="window.location.reload()">Reload Now</button>
+                <button class="btn btn-secondary" onclick="dismissUpdate()">Dismiss</button>
+            </div>
+        </div>
+    `;
+
+    const container = document.querySelector('.container');
+    container.insertBefore(banner, container.firstChild);
+}
+
+// Dismiss update notification
+function dismissUpdate() {
+    const banner = document.getElementById('update-banner');
+    if (banner) {
+        banner.remove();
+    }
+}
+
+// Start update checking (poll every 60 seconds)
+function startUpdateCheck() {
+    // Initial version fetch
+    checkForUpdates();
+
+    // Poll every 60 seconds
+    updateCheckInterval = setInterval(checkForUpdates, 60000);
 }
 
 // Check API health
@@ -646,6 +717,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Setup refresh button
     const refreshBtn = document.getElementById('refresh-btn');
     refreshBtn.addEventListener('click', refreshDashboard);
+
+    // Start update checking
+    startUpdateCheck();
 
     // Initial load
     await refreshDashboard();

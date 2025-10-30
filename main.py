@@ -1,6 +1,7 @@
 """FastAPI application for Kite Connect Analytics Dashboard."""
 
 import os
+from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,6 +12,9 @@ import uvicorn
 
 # Initialize FastAPI app
 app = FastAPI(title="Kite Connect Analytics MVP")
+
+# App version (timestamp of startup)
+APP_VERSION = datetime.now().isoformat()
 
 # Mount static files and templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -116,6 +120,15 @@ async def postback_handler(request: Request):
     except Exception as e:
         print(f"❌ Postback error: {e}")
         return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/version")
+async def get_version():
+    """Get current app version for update detection."""
+    return {
+        "version": APP_VERSION,
+        "timestamp": datetime.now().isoformat()
+    }
 
 
 @app.get("/api/health")
