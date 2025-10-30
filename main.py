@@ -34,6 +34,18 @@ async def dashboard(request: Request):
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
 
+@app.get("/raw", response_class=HTMLResponse)
+async def raw_data(request: Request):
+    """Serve the raw historical data viewer page."""
+    if not kite_client:
+        return templates.TemplateResponse("raw.html", {
+            "request": request,
+            "error": "Kite client not initialized"
+        })
+
+    return templates.TemplateResponse("raw.html", {"request": request})
+
+
 @app.get("/setup", response_class=HTMLResponse)
 async def setup_page(request: Request):
     """Serve the OAuth setup page."""
@@ -398,6 +410,101 @@ async def sync_positions():
         )
 
     return result
+
+
+@app.get("/api/raw/trades")
+async def get_raw_trades(
+    start_date: str = None,
+    end_date: str = None,
+    symbol: str = None,
+    limit: int = 1000
+):
+    """Get raw trade data with optional filters."""
+    if not kite_client:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Kite client not initialized"}
+        )
+
+    try:
+        from datetime import datetime, timedelta
+
+        # Default to last 30 days if no dates provided
+        if not end_date:
+            end_date = datetime.now().date().isoformat()
+        if not start_date:
+            start_date = (datetime.now().date() - timedelta(days=30)).isoformat()
+
+        # Get trades from database
+        if symbol:
+            trades = kite_client.db.get_trades_by_date_range(start_date, end_date)
+            trades = [t for t in trades if t.get("tradingsymbol") == symbol]
+        else:
+            trades = kite_client.db.get_trades_by_date_range(start_date, end_date)
+
+        # Limit results
+        trades = trades[:limit]
+
+        return {
+            "success": True,
+            "data": trades,
+            "count": len(trades),
+            "filters": {
+                "start_date": start_date,
+                "end_date": end_date,
+                "symbol": symbol,
+                "limit": limit
+            }
+        }
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@app.get("/api/raw/positions")
+async def get_raw_positions(days: int = 30, symbol: str = None):
+    """Get raw position snapshots with optional filters."""
+    if not kite_client:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Kite client not initialized"}
+        )
+
+    try:
+        if symbol:
+            positions = kite_client.db.get_position_history(symbol, days=days)
+        else:
+            # Get all positions from last N days
+            from datetime import datetime, timedelta
+            start_date = (datetime.now().date() - timedelta(days=days)).isoformat()
+
+            with kite_client.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT * FROM positions
+                    WHERE snapshot_date >= ?
+                    ORDER BY snapshot_timestamp DESC
+                    LIMIT 1000
+                """, (start_date,))
+                rows = cursor.fetchall()
+                positions = [dict(row) for row in rows]
+
+        return {
+            "success": True,
+            "data": positions,
+            "count": len(positions),
+            "filters": {
+                "days": days,
+                "symbol": symbol
+            }
+        }
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
 
 
 if __name__ == "__main__":

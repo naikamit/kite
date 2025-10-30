@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raw Historical Data - Kite Connect</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .filters-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+        .filter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .filter-field {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .filter-field label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .filter-field input,
+        .filter-field select {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px 12px;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+        .filter-field input:focus,
+        .filter-field select:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .tab {
+            padding: 12px 24px;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .tab:hover {
+            color: var(--text-primary);
+        }
+        .tab.active {
+            color: var(--accent-blue);
+            border-bottom-color: var(--accent-blue);
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .export-btns {
+            display: flex;
+            gap: 12px;
+        }
+        .btn-secondary {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+        .btn-secondary:hover {
+            background: var(--bg-hover);
+        }
+        .data-table-wrapper {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--accent-blue);
+            text-decoration: none;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">← Back to Dashboard</a>
+
+        <header class="header">
+            <div class="header-content">
+                <div>
+                    <h1>Raw Historical Data</h1>
+                    <p style="color: var(--text-secondary); margin-top: 4px;">View all trades and position snapshots from database</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('trades')">Trades</button>
+            <button class="tab" onclick="switchTab('positions')">Positions</button>
+        </div>
+
+        <!-- Filters Panel -->
+        <div class="filters-panel">
+            <div id="trades-filters">
+                <div class="filter-grid">
+                    <div class="filter-field">
+                        <label>Start Date</label>
+                        <input type="date" id="start-date" />
+                    </div>
+                    <div class="filter-field">
+                        <label>End Date</label>
+                        <input type="date" id="end-date" />
+                    </div>
+                    <div class="filter-field">
+                        <label>Symbol</label>
+                        <input type="text" id="symbol" placeholder="e.g., RELIANCE" />
+                    </div>
+                    <div class="filter-field">
+                        <label>Limit</label>
+                        <select id="limit">
+                            <option value="100">100</option>
+                            <option value="500">500</option>
+                            <option value="1000" selected>1000</option>
+                            <option value="5000">5000</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div id="positions-filters" style="display: none;">
+                <div class="filter-grid">
+                    <div class="filter-field">
+                        <label>Days</label>
+                        <select id="days">
+                            <option value="7">Last 7 days</option>
+                            <option value="30" selected>Last 30 days</option>
+                            <option value="90">Last 90 days</option>
+                            <option value="365">Last year</option>
+                        </select>
+                    </div>
+                    <div class="filter-field">
+                        <label>Symbol</label>
+                        <input type="text" id="pos-symbol" placeholder="e.g., RELIANCE" />
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+                <button class="btn btn-primary" onclick="loadData()">Apply Filters</button>
+                <div class="export-btns">
+                    <button class="btn btn-secondary" onclick="exportJSON()">Export JSON</button>
+                    <button class="btn btn-secondary" onclick="exportCSV()">Export CSV</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Total Records</div>
+                <div class="stat-value" id="total-count">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Filtered Records</div>
+                <div class="stat-value" id="filtered-count">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Date Range</div>
+                <div class="stat-value" id="date-range" style="font-size: 14px;">-</div>
+            </div>
+        </div>
+
+        <!-- Data Table -->
+        <div class="data-table-wrapper">
+            <div id="loading" class="loading" style="display: flex;">
+                <div class="spinner"></div>
+                <p>Loading data...</p>
+            </div>
+            <div id="error" class="error-message" style="display: none; margin: 20px;"></div>
+            <div id="data-container" style="display: none; overflow-x: auto;">
+                <table class="data-table" style="width: 100%;">
+                    <thead id="table-header"></thead>
+                    <tbody id="table-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentTab = 'trades';
+        let currentData = [];
+
+        // Set default dates
+        document.getElementById('end-date').valueAsDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - 30);
+        document.getElementById('start-date').valueAsDate = startDate;
+
+        // Switch tabs
+        function switchTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+
+            if (tab === 'trades') {
+                document.getElementById('trades-filters').style.display = 'block';
+                document.getElementById('positions-filters').style.display = 'none';
+            } else {
+                document.getElementById('trades-filters').style.display = 'none';
+                document.getElementById('positions-filters').style.display = 'block';
+            }
+
+            loadData();
+        }
+
+        // Load data
+        async function loadData() {
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const container = document.getElementById('data-container');
+
+            loading.style.display = 'flex';
+            error.style.display = 'none';
+            container.style.display = 'none';
+
+            try {
+                let url, params;
+
+                if (currentTab === 'trades') {
+                    const startDate = document.getElementById('start-date').value;
+                    const endDate = document.getElementById('end-date').value;
+                    const symbol = document.getElementById('symbol').value;
+                    const limit = document.getElementById('limit').value;
+
+                    params = new URLSearchParams();
+                    if (startDate) params.append('start_date', startDate);
+                    if (endDate) params.append('end_date', endDate);
+                    if (symbol) params.append('symbol', symbol);
+                    if (limit) params.append('limit', limit);
+
+                    url = `/api/raw/trades?${params.toString()}`;
+                } else {
+                    const days = document.getElementById('days').value;
+                    const symbol = document.getElementById('pos-symbol').value;
+
+                    params = new URLSearchParams();
+                    if (days) params.append('days', days);
+                    if (symbol) params.append('symbol', symbol);
+
+                    url = `/api/raw/positions?${params.toString()}`;
+                }
+
+                const response = await fetch(url);
+                const result = await response.json();
+
+                loading.style.display = 'none';
+
+                if (!result.success) {
+                    error.textContent = result.error;
+                    error.style.display = 'block';
+                    return;
+                }
+
+                currentData = result.data || [];
+                renderTable(currentData);
+                updateStats(result);
+
+                container.style.display = 'block';
+            } catch (err) {
+                loading.style.display = 'none';
+                error.textContent = `Error: ${err.message}`;
+                error.style.display = 'block';
+            }
+        }
+
+        // Render table
+        function renderTable(data) {
+            const header = document.getElementById('table-header');
+            const body = document.getElementById('table-body');
+
+            if (data.length === 0) {
+                body.innerHTML = '<tr><td colspan="100" style="text-align: center; padding: 40px; color: var(--text-muted);">No data found</td></tr>';
+                return;
+            }
+
+            // Generate header
+            const columns = Object.keys(data[0]);
+            header.innerHTML = '<tr>' + columns.map(col => `<th>${col}</th>`).join('') + '</tr>';
+
+            // Generate rows
+            body.innerHTML = data.map(row => {
+                return '<tr>' + columns.map(col => {
+                    let value = row[col];
+                    // Format values
+                    if (col === 'price' || col === 'average_price' || col === 'last_price' || col === 'pnl' || col === 'unrealised' || col === 'realised') {
+                        value = value ? `₹${parseFloat(value).toFixed(2)}` : '-';
+                    }
+                    return `<td>${value !== null && value !== undefined ? value : '-'}</td>`;
+                }).join('') + '</tr>';
+            }).join('');
+        }
+
+        // Update stats
+        function updateStats(result) {
+            document.getElementById('filtered-count').textContent = result.count || 0;
+            document.getElementById('total-count').textContent = result.count || 0;
+
+            if (result.filters) {
+                if (currentTab === 'trades' && result.filters.start_date && result.filters.end_date) {
+                    document.getElementById('date-range').textContent =
+                        `${result.filters.start_date} to ${result.filters.end_date}`;
+                } else if (currentTab === 'positions') {
+                    document.getElementById('date-range').textContent = `Last ${result.filters.days} days`;
+                }
+            }
+        }
+
+        // Export JSON
+        function exportJSON() {
+            const dataStr = JSON.stringify(currentData, null, 2);
+            const dataBlob = new Blob([dataStr], {type: 'application/json'});
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `kite_${currentTab}_${new Date().toISOString().split('T')[0]}.json`;
+            link.click();
+        }
+
+        // Export CSV
+        function exportCSV() {
+            if (currentData.length === 0) return;
+
+            const columns = Object.keys(currentData[0]);
+            const csv = [
+                columns.join(','),
+                ...currentData.map(row =>
+                    columns.map(col => JSON.stringify(row[col] || '')).join(',')
+                )
+            ].join('\n');
+
+            const dataBlob = new Blob([csv], {type: 'text/csv'});
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `kite_${currentTab}_${new Date().toISOString().split('T')[0]}.csv`;
+            link.click();
+        }
+
+        // Load initial data
+        loadData();
+    </script>
+</body>
+</html>
