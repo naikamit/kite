@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kite Connect Setup - OAuth Configuration</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .setup-container {
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+        }
+        .setup-card {
+            background: var(--bg-card);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            padding: 32px;
+            margin-bottom: 24px;
+        }
+        .setup-title {
+            font-size: 28px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+        }
+        .setup-subtitle {
+            font-size: 16px;
+            color: var(--text-secondary);
+            margin-bottom: 32px;
+        }
+        .step {
+            margin-bottom: 32px;
+        }
+        .step-number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            background: var(--accent-blue);
+            color: white;
+            border-radius: 50%;
+            font-weight: 600;
+            margin-right: 12px;
+        }
+        .step-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+        }
+        .step-content {
+            margin-left: 44px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+        .code-block {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            margin: 12px 0;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            color: var(--text-primary);
+            overflow-x: auto;
+        }
+        .env-var {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin: 12px 0;
+        }
+        .env-var label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .env-var input {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: 'Monaco', 'Courier New', monospace;
+        }
+        .env-var input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+        .btn-large {
+            width: 100%;
+            padding: 16px 24px;
+            font-size: 16px;
+            margin-top: 12px;
+        }
+        .success-message {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid var(--success);
+            border-radius: 8px;
+            padding: 20px;
+            color: var(--success);
+            margin-bottom: 24px;
+        }
+        .success-message h3 {
+            margin: 0 0 12px 0;
+            font-size: 18px;
+        }
+        .token-display {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            margin: 12px 0;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            color: var(--text-primary);
+            word-break: break-all;
+            position: relative;
+        }
+        .copy-btn {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+        .alert {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid var(--error);
+            border-radius: 8px;
+            padding: 16px;
+            color: var(--error);
+            margin-bottom: 24px;
+        }
+        .info-box {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid var(--accent-blue);
+            border-radius: 8px;
+            padding: 16px;
+            color: var(--accent-blue);
+            margin: 12px 0;
+            font-size: 14px;
+        }
+        .link {
+            color: var(--accent-blue);
+            text-decoration: none;
+        }
+        .link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="setup-container">
+        <div class="setup-card">
+            <h1 class="setup-title">Kite Connect Setup</h1>
+            <p class="setup-subtitle">Complete OAuth configuration to start using the dashboard</p>
+
+            {% if error %}
+            <div class="alert">
+                <strong>Error:</strong> {{ error }}
+            </div>
+            {% endif %}
+
+            {% if success %}
+            <div class="success-message">
+                <h3>✅ Access Token Generated Successfully!</h3>
+                <p>{{ message }}</p>
+
+                <div style="margin-top: 20px;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600;">Your Access Token:</label>
+                    <div class="token-display">
+                        <button class="btn btn-primary copy-btn" onclick="copyToken()">Copy</button>
+                        <span id="access-token-value">{{ access_token }}</span>
+                    </div>
+                </div>
+
+                <div class="info-box" style="margin-top: 20px;">
+                    <strong>Next Steps:</strong>
+                    <ol style="margin: 12px 0 0 20px; padding: 0;">
+                        <li>Copy the access token above</li>
+                        <li>Go to your Render dashboard → Your service → Environment</li>
+                        <li>Add/update the environment variable: <code>KITE_ACCESS_TOKEN</code></li>
+                        <li>Save and wait for the service to redeploy</li>
+                        <li>Return to the <a href="/" class="link">dashboard</a></li>
+                    </ol>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="step">
+                <h2 class="step-title">
+                    <span class="step-number">1</span>
+                    Set Environment Variables on Render
+                </h2>
+                <div class="step-content">
+                    <p>Go to your Render dashboard and add these environment variables:</p>
+                    <div class="code-block">
+KITE_API_KEY=your_api_key_here<br>
+KITE_API_SECRET=your_api_secret_here
+                    </div>
+                    <div class="info-box">
+                        Get these from your <a href="https://kite.zerodha.com/" target="_blank" class="link">Kite Connect Dashboard</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="step">
+                <h2 class="step-title">
+                    <span class="step-number">2</span>
+                    Configure Redirect URLs
+                </h2>
+                <div class="step-content">
+                    <p>In your Kite Connect app settings, set these URLs:</p>
+                    <div class="code-block">
+<strong>Redirect URL:</strong><br>
+https://kite-75me.onrender.com/callback<br><br>
+<strong>Postback URL:</strong><br>
+https://kite-75me.onrender.com/postback
+                    </div>
+                </div>
+            </div>
+
+            <div class="step">
+                <h2 class="step-title">
+                    <span class="step-number">3</span>
+                    Generate Access Token
+                </h2>
+                <div class="step-content">
+                    <p>Click the button below to start the OAuth flow:</p>
+
+                    {% if api_key %}
+                    <a href="https://kite.zerodha.com/connect/login?api_key={{ api_key }}&v=3" target="_blank">
+                        <button class="btn btn-primary btn-large">
+                            🔐 Connect to Kite & Generate Token
+                        </button>
+                    </a>
+                    {% else %}
+                    <div class="alert">
+                        Please set the KITE_API_KEY environment variable first, then reload this page.
+                    </div>
+                    {% endif %}
+
+                    <div class="info-box" style="margin-top: 16px;">
+                        This will redirect you to Zerodha login. After authorization, you'll be redirected back here with your access token.
+                    </div>
+                </div>
+            </div>
+
+            {% if has_token %}
+            <div style="margin-top: 32px; text-align: center;">
+                <a href="/">
+                    <button class="btn btn-primary btn-large">
+                        📊 Go to Dashboard
+                    </button>
+                </a>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="setup-card">
+            <h2 style="font-size: 20px; margin-bottom: 16px;">📝 Important Notes</h2>
+            <ul style="color: var(--text-secondary); line-height: 1.8; margin-left: 20px;">
+                <li>Access tokens expire daily and need to be regenerated</li>
+                <li>Keep your API secret secure and never commit it to version control</li>
+                <li>The redirect URL must exactly match what's configured in Kite Connect</li>
+                <li>After updating environment variables on Render, the service will automatically redeploy</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        function copyToken() {
+            const token = document.getElementById('access-token-value').textContent;
+            navigator.clipboard.writeText(token).then(() => {
+                const btn = document.querySelector('.copy-btn');
+                const originalText = btn.textContent;
+                btn.textContent = '✓ Copied!';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2000);
+            });
+        }
+    </script>
+</body>
+</html>

@@ -11,6 +11,44 @@ A lightweight, real-time trading analytics dashboard for Zerodha Kite Connect AP
 - **Responsive Design**: Works seamlessly on desktop and mobile devices
 - **Manual Refresh**: Button to fetch latest data on demand
 - **Error Handling**: Clear error messages and toast notifications
+- **OAuth Flow**: Automatic access token generation via web interface
+- **Render Ready**: One-click deployment to Render.com
+
+## Quick Deploy to Render
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
+
+### Setup Steps:
+
+1. **Fork this repository** to your GitHub account
+
+2. **Create Kite Connect App**:
+   - Go to [Kite Connect](https://kite.zerodha.com/)
+   - Create a new app and get your API Key and Secret
+   - Set these redirect URLs:
+     - Redirect URL: `https://your-app-name.onrender.com/callback`
+     - Postback URL: `https://your-app-name.onrender.com/postback`
+
+3. **Deploy to Render**:
+   - Click "New" → "Web Service" in Render dashboard
+   - Connect your GitHub repository
+   - Render will auto-detect the `render.yaml` configuration
+   - Add environment variables:
+     - `KITE_API_KEY`: Your Kite Connect API key
+     - `KITE_API_SECRET`: Your Kite Connect API secret
+   - Click "Create Web Service"
+
+4. **Generate Access Token**:
+   - Once deployed, visit `https://your-app-name.onrender.com/setup`
+   - Click "Connect to Kite & Generate Token"
+   - Login with your Zerodha credentials
+   - Copy the generated access token
+   - Add it to Render environment variables as `KITE_ACCESS_TOKEN`
+   - Service will auto-redeploy with the new token
+
+5. **Access Dashboard**: Visit `https://your-app-name.onrender.com`
+
+**Note**: Access tokens expire daily. Return to `/setup` to regenerate when needed.
 
 ## Tech Stack
 
@@ -23,12 +61,14 @@ A lightweight, real-time trading analytics dashboard for Zerodha Kite Connect AP
 
 ```
 kite/
-├── main.py                 # FastAPI application
+├── main.py                 # FastAPI application with OAuth endpoints
 ├── kite_client.py          # Kite Connect API wrapper
 ├── requirements.txt        # Python dependencies
+├── render.yaml            # Render deployment configuration
 ├── .env.example           # Environment variables template
 ├── templates/
-│   └── dashboard.html     # Dashboard UI
+│   ├── dashboard.html     # Main dashboard UI
+│   └── setup.html         # OAuth setup page
 └── static/
     ├── style.css          # Dark theme styling
     └── app.js             # Frontend logic

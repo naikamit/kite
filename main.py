@@ -1,9 +1,11 @@
 """FastAPI application for Kite Connect Analytics Dashboard."""
 
+import os
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from kiteconnect import KiteConnect
 from kite_client import KiteClient
 import uvicorn
 
@@ -26,7 +28,82 @@ except Exception as e:
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     """Serve the main dashboard page."""
+    # If no access token is set, redirect to setup page
+    if not os.getenv("KITE_ACCESS_TOKEN"):
+        return RedirectResponse(url="/setup")
     return templates.TemplateResponse("dashboard.html", {"request": request})
+
+
+@app.get("/setup", response_class=HTMLResponse)
+async def setup_page(request: Request):
+    """Serve the OAuth setup page."""
+    api_key = os.getenv("KITE_API_KEY", "")
+    has_token = bool(os.getenv("KITE_ACCESS_TOKEN"))
+    return templates.TemplateResponse("setup.html", {
+        "request": request,
+        "api_key": api_key,
+        "has_token": has_token
+    })
+
+
+@app.get("/callback")
+async def oauth_callback(request: Request, request_token: str = None, status: str = None):
+    """Handle OAuth callback from Kite Connect."""
+    if status != "success" or not request_token:
+        return templates.TemplateResponse("setup.html", {
+            "request": request,
+            "error": "OAuth authorization failed or was cancelled",
+            "api_key": os.getenv("KITE_API_KEY", ""),
+            "has_token": False
+        })
+
+    api_key = os.getenv("KITE_API_KEY")
+    api_secret = os.getenv("KITE_API_SECRET")
+
+    if not api_key or not api_secret:
+        return templates.TemplateResponse("setup.html", {
+            "request": request,
+            "error": "KITE_API_KEY and KITE_API_SECRET must be set in environment variables",
+            "api_key": "",
+            "has_token": False
+        })
+
+    try:
+        # Generate access token
+        kite = KiteConnect(api_key=api_key)
+        data = kite.generate_session(request_token, api_secret=api_secret)
+        access_token = data["access_token"]
+
+        # Return the token to display to user
+        return templates.TemplateResponse("setup.html", {
+            "request": request,
+            "success": True,
+            "access_token": access_token,
+            "api_key": api_key,
+            "has_token": True,
+            "message": "Access token generated successfully! Add it to your Render environment variables."
+        })
+
+    except Exception as e:
+        return templates.TemplateResponse("setup.html", {
+            "request": request,
+            "error": f"Failed to generate access token: {str(e)}",
+            "api_key": api_key,
+            "has_token": False
+        })
+
+
+@app.post("/postback")
+async def postback_handler(request: Request):
+    """Handle postback from Kite Connect for order updates."""
+    # This is optional - just log the postback for now
+    try:
+        data = await request.json()
+        print(f"📬 Postback received: {data}")
+        return {"status": "success"}
+    except Exception as e:
+        print(f"❌ Postback error: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 @app.get("/api/health")
@@ -132,6 +209,7 @@ async def get_holdings():
 
 
 if __name__ == "__main__":
-    print("🚀 Starting Kite Connect Analytics Dashboard on port 8001...")
-    print("📊 Access dashboard at: http://localhost:8001")
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    port = int(os.getenv("PORT", 8001))
+    print(f"🚀 Starting Kite Connect Analytics Dashboard on port {port}...")
+    print(f"📊 Access dashboard at: http://localhost:{port}")
+    uvicorn.run(app, host="0.0.0.0", port=port)
