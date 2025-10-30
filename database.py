@@ -1,5 +1,6 @@
 """Database module for persisting Kite trading data."""
 
+import os
 import sqlite3
 from datetime import datetime, date
 from typing import Dict, List, Optional
@@ -9,9 +10,19 @@ from contextlib import contextmanager
 class TradingDatabase:
     """SQLite database for storing trading history and analytics."""
 
-    def __init__(self, db_path: str = "data/trading.db"):
+    def __init__(self, db_path: str = None):
         """Initialize database connection."""
+        # Use /app/data for Render, data/ for local
+        if db_path is None:
+            if os.path.exists("/app/data"):
+                db_path = "/app/data/trading.db"
+            else:
+                db_path = "data/trading.db"
+                # Ensure local data directory exists
+                os.makedirs("data", exist_ok=True)
+
         self.db_path = db_path
+        print(f"📁 Database location: {self.db_path}")
         self._init_database()
 
     @contextmanager
