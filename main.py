@@ -21,11 +21,18 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 # Initialize Kite client
+print("🔍 Checking environment variables...")
+print(f"   KITE_API_KEY: {'✓ Set' if os.getenv('KITE_API_KEY') else '✗ Missing'}")
+print(f"   KITE_API_SECRET: {'✓ Set' if os.getenv('KITE_API_SECRET') else '✗ Missing'}")
+print(f"   KITE_ACCESS_TOKEN: {'✓ Set' if os.getenv('KITE_ACCESS_TOKEN') else '✗ Missing'}")
+
 try:
     kite_client = KiteClient()
     print("✅ Kite Connect client initialized successfully")
 except Exception as e:
     print(f"❌ Failed to initialize Kite Connect client: {e}")
+    print(f"   Error type: {type(e).__name__}")
+    print(f"   Error details: {str(e)}")
     kite_client = None
 
 
