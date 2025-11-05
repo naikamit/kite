@@ -542,7 +542,16 @@ class KiteClient:
             # STEP 1: Sync historical trades (all time)
             # The trades() API returns ALL executed trades, not just today
             try:
+                print("📡 Fetching trades from Kite API...")
                 api_trades = self.kite.trades()
+                print(f"   ✅ Received {len(api_trades)} trades from API")
+
+                if len(api_trades) == 0:
+                    print("   ⚠️ WARNING: trades() API returned ZERO trades!")
+                    print("   This might indicate:")
+                    print("      - No trades in account")
+                    print("      - API limitation (only returns current session)")
+                    print("      - API error or rate limit")
 
                 # Group trades by order_id to create order entries
                 orders_from_trades = {}
@@ -579,14 +588,19 @@ class KiteClient:
                         completed_orders += 1
                     self.db.save_order(order_data)
 
-                print(f"   Synced {len(orders_from_trades)} orders from trades() API")
+                print(f"   ✅ Processed {len(orders_from_trades)} unique orders from trades")
+                print(f"   📊 New orders: {new_orders}")
 
             except Exception as trade_error:
                 print(f"⚠️ Failed to sync trades: {trade_error}")
+                import traceback
+                traceback.print_exc()
 
             # STEP 2: Sync today's orders from orders() API (for pending/cancelled/rejected)
             try:
+                print("📡 Fetching today's orders from Kite API...")
                 api_orders = self.kite.orders()
+                print(f"   ✅ Received {len(api_orders)} orders from API")
 
                 for order in api_orders:
                     # Save all orders (complete, pending, cancelled, rejected)
@@ -615,7 +629,7 @@ class KiteClient:
                         # Save to database (will update if exists)
                         self.db.save_order(order_data)
 
-                print(f"   Synced {len(api_orders)} orders from orders() API (today)")
+                print(f"   ✅ Synced {len(api_orders)} orders from orders() API (today)")
 
             except Exception as order_error:
                 print(f"⚠️ Failed to sync today's orders: {order_error}")
@@ -628,6 +642,9 @@ class KiteClient:
             }
 
         except Exception as e:
+            print(f"❌ CRITICAL ERROR in sync_orders_to_db: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 "success": False,
                 "error": str(e)
