@@ -1046,30 +1046,26 @@ function renderWizardStep() {
 
                 <div class="form-group">
                     <label>Target Price *</label>
-                    <div class="slider-input-group">
-                        <input type="range" id="target-slider" class="price-slider"
-                               min="${targetMin}" max="${targetMax}" step="0.05"
-                               value="${defaultTarget}"
-                               oninput="syncSliderToInput('target', this.value)">
-                        <input type="number" id="target-input" class="price-number-input"
-                               step="0.05" value="${defaultTarget}"
-                               oninput="syncInputToSlider('target', this.value)" required>
-                    </div>
-                    <small class="input-hint">Drag slider or type precise value • Suggested: ₹${isBuy ? (entryPrice * 1.02).toFixed(2) : (entryPrice * 0.98).toFixed(2)} (2% ${isBuy ? 'above' : 'below'})</small>
+                    <input type="number" id="target-input" class="price-number-input-large"
+                           step="0.05" value="${defaultTarget}"
+                           oninput="syncInputToSlider('target', this.value)" required>
+                    <input type="range" id="target-slider" class="price-slider-full"
+                           min="${targetMin}" max="${targetMax}" step="0.05"
+                           value="${defaultTarget}"
+                           oninput="syncSliderToInput('target', this.value)">
+                    <small class="input-hint">Suggested: ₹${isBuy ? (entryPrice * 1.02).toFixed(2) : (entryPrice * 0.98).toFixed(2)} (2% ${isBuy ? 'above' : 'below'})</small>
                 </div>
 
                 <div class="form-group">
                     <label>Stop Loss *</label>
-                    <div class="slider-input-group">
-                        <input type="range" id="sl-slider" class="price-slider"
-                               min="${slMin}" max="${slMax}" step="0.05"
-                               value="${defaultSL}"
-                               oninput="syncSliderToInput('sl', this.value)">
-                        <input type="number" id="sl-input" class="price-number-input"
-                               step="0.05" value="${defaultSL}"
-                               oninput="syncInputToSlider('sl', this.value)" required>
-                    </div>
-                    <small class="input-hint">Drag slider or type precise value • Suggested: ₹${isBuy ? (entryPrice * 0.98).toFixed(2) : (entryPrice * 1.02).toFixed(2)} (2% ${isBuy ? 'below' : 'above'})</small>
+                    <input type="number" id="sl-input" class="price-number-input-large"
+                           step="0.05" value="${defaultSL}"
+                           oninput="syncInputToSlider('sl', this.value)" required>
+                    <input type="range" id="sl-slider" class="price-slider-full"
+                           min="${slMin}" max="${slMax}" step="0.05"
+                           value="${defaultSL}"
+                           oninput="syncSliderToInput('sl', this.value)">
+                    <small class="input-hint">Suggested: ₹${isBuy ? (entryPrice * 0.98).toFixed(2) : (entryPrice * 1.02).toFixed(2)} (2% ${isBuy ? 'below' : 'above'})</small>
                 </div>
 
                 <div class="risk-reward-display" id="rr-display">
