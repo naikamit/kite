@@ -1216,7 +1216,7 @@ function updateRiskReward() {
     }
 
     const ratio = (reward / risk).toFixed(2);
-    const color = ratio >= 2 ? 'var(--success-green)' : ratio >= 1 ? 'var(--warning-orange)' : 'var(--error-red)';
+    const color = ratio > 3 ? 'var(--success-green)' : ratio >= 2 ? 'var(--warning-orange)' : 'var(--error-red)';
     rrDisplay.innerHTML = `<span style="color: ${color};">Risk:Reward = 1:${ratio}</span>`;
 }
 
@@ -1293,6 +1293,12 @@ function wizardPrevious() {
 
 // Wizard submit
 async function wizardSubmit() {
+    // Validate at least one emotion is selected
+    if (wizardState.data.emotions.length === 0) {
+        showToast('Please select at least one emotion', 'error');
+        return;
+    }
+
     // Collect data from step 4
     const notesInput = document.getElementById('notes-input');
     wizardState.data.notes = notesInput?.value.trim() || null;
