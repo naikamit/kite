@@ -51,6 +51,59 @@ scheduler = BackgroundScheduler()
 new_order_notifications = []
 
 
+def handle_order_update(order_data):
+    """
+    Callback for real-time order updates from WebSocket.
+
+    Args:
+        order_data: Order update from KiteTicker
+    """
+    try:
+        print(f"🔔 Real-time order update: {order_data}")
+
+        # Check if order is completed
+        status = order_data.get("status")
+        if status in ["COMPLETE", "CANCELLED", "REJECTED"]:
+            order_id = order_data.get("order_id")
+
+            # Save order to database
+            order_to_save = {
+                "order_id": order_id,
+                "trade_id": order_data.get("exchange_order_id"),
+                "symbol": order_data.get("tradingsymbol"),
+                "exchange": order_data.get("exchange"),
+                "action": order_data.get("transaction_type"),
+                "quantity": order_data.get("filled_quantity", 0),
+                "entry_price": order_data.get("average_price", 0),
+                "order_type": order_data.get("order_type"),
+                "product": order_data.get("product"),
+                "status": status,
+                "timestamp": order_data.get("exchange_timestamp", datetime.now().isoformat())
+            }
+
+            kite_client.db.save_order(order_to_save)
+            print(f"💾 Saved order {order_id} to database")
+
+            # Add to notification queue if completed successfully
+            if status == "COMPLETE":
+                notification = {
+                    "order_id": order_id,
+                    "symbol": order_to_save["symbol"],
+                    "action": order_to_save["action"],
+                    "quantity": order_to_save["quantity"],
+                    "price": order_to_save["entry_price"],
+                    "timestamp": datetime.now().isoformat()
+                }
+
+                # Only add if not already in queue
+                if not any(n["order_id"] == order_id for n in new_order_notifications):
+                    new_order_notifications.append(notification)
+                    print(f"🔔 Added notification for order {order_id}")
+
+    except Exception as e:
+        print(f"❌ Error handling order update: {e}")
+
+
 def is_market_hours() -> bool:
     """Check if current time is during market hours (9:15 AM - 3:30 PM IST)."""
     now = datetime.now().time()
@@ -165,12 +218,22 @@ def monitor_positions_job():
 
 # Start background jobs
 if kite_client:
-    # Sync orders every 30 seconds
+    # Start WebSocket for real-time order updates
+    try:
+        print("🚀 Starting WebSocket for real-time order updates...")
+        kite_client.start_websocket(order_callback=handle_order_update)
+        print("✅ WebSocket started for instant order notifications")
+    except Exception as e:
+        print(f"⚠️ WebSocket failed to start: {e}")
+        print("   Falling back to polling mode")
+
+    # Sync orders every 5 minutes (fallback for WebSocket)
+    # Reduced from 30 seconds since WebSocket provides real-time updates
     scheduler.add_job(
         func=sync_orders_job,
-        trigger=IntervalTrigger(seconds=30),
+        trigger=IntervalTrigger(minutes=5),
         id="sync_orders",
-        name="Sync orders from Kite API",
+        name="Sync orders from Kite API (fallback)",
         replace_existing=True
     )
 
@@ -185,8 +248,9 @@ if kite_client:
 
     scheduler.start()
     print("✅ Background jobs started")
-    print("   - Order sync: every 30 seconds")
+    print("   - Order sync: every 5 minutes (fallback for WebSocket)")
     print("   - Position monitoring: every 1 minute (market hours only)")
+    print("   - Real-time order updates: via WebSocket ⚡")
 else:
     print("⚠️ Background jobs not started (Kite client unavailable)")
 

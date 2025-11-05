@@ -2,13 +2,19 @@
 
 import os
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
-from kiteconnect import KiteConnect
+from typing import Dict, List, Optional, Callable
+from kiteconnect import KiteConnect, KiteTicker
 from dotenv import load_dotenv
 from database import TradingDatabase
+import threading
+import logging
 
 # Load environment variables
 load_dotenv()
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class KiteClient:
@@ -39,6 +45,11 @@ class KiteClient:
 
         self.kite = KiteConnect(api_key=self.api_key)
         self.kite.set_access_token(self.access_token)
+
+        # Initialize KiteTicker for real-time updates
+        self.ticker = None
+        self.ticker_thread = None
+        self.order_update_callback = None
 
         print(f"🔑 Using access token from database")
 
@@ -690,3 +701,94 @@ class KiteClient:
                 "success": False,
                 "error": str(e)
             }
+
+    def start_websocket(self, order_callback: Callable):
+        """
+        Start WebSocket connection for real-time order updates.
+
+        Args:
+            order_callback: Callback function to handle order updates
+        """
+        if self.ticker is not None:
+            logger.warning("⚠️ WebSocket already running")
+            return
+
+        self.order_update_callback = order_callback
+
+        try:
+            # Initialize KiteTicker
+            self.ticker = KiteTicker(self.api_key, self.access_token)
+
+            # Set up callbacks
+            self.ticker.on_connect = self._on_connect
+            self.ticker.on_close = self._on_close
+            self.ticker.on_error = self._on_error
+            self.ticker.on_reconnect = self._on_reconnect
+            self.ticker.on_noreconnect = self._on_noreconnect
+            self.ticker.on_order_update = self._on_order_update
+
+            # Start ticker in a separate thread
+            def run_ticker():
+                try:
+                    logger.info("🚀 Starting KiteTicker WebSocket...")
+                    self.ticker.connect(threaded=False)
+                except Exception as e:
+                    logger.error(f"❌ KiteTicker error: {e}")
+
+            self.ticker_thread = threading.Thread(target=run_ticker, daemon=True)
+            self.ticker_thread.start()
+
+            logger.info("✅ WebSocket thread started")
+
+        except Exception as e:
+            logger.error(f"❌ Failed to start WebSocket: {e}")
+            self.ticker = None
+
+    def stop_websocket(self):
+        """Stop WebSocket connection."""
+        if self.ticker:
+            try:
+                logger.info("🛑 Stopping KiteTicker WebSocket...")
+                self.ticker.close()
+                self.ticker = None
+                logger.info("✅ WebSocket stopped")
+            except Exception as e:
+                logger.error(f"❌ Error stopping WebSocket: {e}")
+
+    def _on_connect(self, ws, response):
+        """Callback when WebSocket connects."""
+        logger.info(f"🔗 WebSocket connected! Response: {response}")
+
+    def _on_close(self, ws, code, reason):
+        """Callback when WebSocket closes."""
+        logger.warning(f"🔌 WebSocket closed. Code: {code}, Reason: {reason}")
+
+    def _on_error(self, ws, code, reason):
+        """Callback for WebSocket errors."""
+        logger.error(f"❌ WebSocket error. Code: {code}, Reason: {reason}")
+
+    def _on_reconnect(self, ws, attempts_count):
+        """Callback when WebSocket reconnects."""
+        logger.info(f"🔄 WebSocket reconnecting... Attempt #{attempts_count}")
+
+    def _on_noreconnect(self, ws):
+        """Callback when WebSocket fails to reconnect."""
+        logger.error("❌ WebSocket failed to reconnect")
+
+    def _on_order_update(self, ws, data):
+        """
+        Callback when order update is received.
+
+        Args:
+            ws: WebSocket instance
+            data: Order update data
+        """
+        try:
+            logger.info(f"📬 Order update received: {data}")
+
+            # Call the registered callback with order data
+            if self.order_update_callback:
+                self.order_update_callback(data)
+
+        except Exception as e:
+            logger.error(f"❌ Error processing order update: {e}")
