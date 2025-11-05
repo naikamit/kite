@@ -651,6 +651,70 @@ body {
     .toast {
         min-width: auto;
     }
+
+    /* Wizard mobile adjustments */
+    .wizard-modal {
+        width: 95%;
+        max-width: 95%;
+    }
+
+    .wizard-step {
+        min-height: 250px;
+    }
+
+    .wizard-step h4 {
+        font-size: 16px;
+    }
+
+    .modal-header h3 {
+        font-size: 18px;
+    }
+
+    .emotion-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
+
+    .emotion-btn-new {
+        padding: 12px 8px;
+    }
+
+    .emotion-icon {
+        font-size: 28px;
+    }
+
+    .emotion-label {
+        font-size: 12px;
+    }
+
+    .entry-price-reminder {
+        font-size: 14px;
+        padding: 10px 12px;
+    }
+
+    .order-info-card {
+        padding: 16px;
+    }
+
+    .info-row {
+        padding: 6px 0;
+    }
+
+    .info-label {
+        font-size: 12px;
+    }
+
+    .info-value {
+        font-size: 13px;
+    }
+
+    .wizard-nav {
+        padding: 16px;
+    }
+
+    .input-hint {
+        font-size: 11px;
+    }
 }
 
 /* Trading Log Styles */
@@ -844,6 +908,153 @@ body {
 
 .modal-actions button {
     flex: 1;
+}
+
+/* Wizard Modal Specific Styles */
+.wizard-modal {
+    max-width: 600px;
+}
+
+.wizard-progress {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.wizard-step {
+    min-height: 300px;
+}
+
+.wizard-step h4 {
+    font-size: 18px;
+    margin: 0 0 20px 0;
+    color: var(--text-primary);
+}
+
+.wizard-nav {
+    display: flex;
+    gap: 12px;
+    padding: 20px 24px;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    border-radius: 0 0 12px 12px;
+}
+
+.wizard-nav button {
+    flex: 1;
+}
+
+.order-info-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.info-row:last-child {
+    border-bottom: none;
+}
+
+.info-label {
+    font-size: 13px;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.info-value {
+    font-size: 14px;
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.entry-price-reminder {
+    background: var(--bg-secondary);
+    border: 2px solid var(--accent-blue);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 16px;
+    font-weight: 600;
+    text-align: center;
+    color: var(--accent-blue);
+    margin-bottom: 20px;
+}
+
+.input-hint {
+    display: block;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.risk-reward-display {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+    font-size: 16px;
+    font-weight: 600;
+    margin-top: 12px;
+}
+
+.emotion-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.emotion-btn-new {
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+}
+
+.emotion-btn-new:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent-blue);
+    transform: translateY(-2px);
+}
+
+.emotion-btn-new.selected {
+    background: var(--accent-blue);
+    border-color: var(--accent-blue);
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.emotion-icon {
+    font-size: 32px;
+}
+
+.emotion-label {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.emotion-btn-new.selected .emotion-label {
+    color: white;
 }
 
 /* Monitored Positions Widget */

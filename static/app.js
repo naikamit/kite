@@ -819,7 +819,53 @@ function hideUnloggedBanner() {
     }
 }
 
-// Show log entry modal
+// Setup patterns for trade logging
+const SETUP_PATTERNS = {
+    papa: [
+        'Double Top',
+        'Double Bottom',
+        'Three White Soldiers',
+        'Three Black Crows',
+        'Bulls Counter Attack',
+        'Bears Counter Attack',
+        'Sandwich Pattern',
+        'Rounding Bottom',
+        'Rounding Top',
+        'Genuine BO',
+        'Genuine BD',
+        'Fake BO',
+        'Fake BD',
+        'Gap Up',
+        'Gap Down',
+        'Mother Candle (Bullish Reversal)',
+        'Mother Candle (Bearish Reversal)',
+        'Mother Candle (Continuation)'
+    ],
+    other: [
+        '3rd Wave Setup (Bullish)',
+        '3rd Wave Setup (Bearish)',
+        'Ending Diagonal Setup (Bullish)',
+        'Ending Diagonal Setup (Bearish)',
+        'Triangle Breakout Setup (Bullish)',
+        'Triangle Breakout Setup (Bearish)'
+    ]
+};
+
+// Trade log wizard state
+let wizardState = {
+    orderId: null,
+    order: null,
+    currentStep: 1,
+    data: {
+        setup: null,
+        target_price: null,
+        stop_loss: null,
+        emotion: null,
+        notes: null
+    }
+};
+
+// Show log entry modal (wizard)
 async function showLogModal(orderId) {
     try {
         // Fetch order details
@@ -837,79 +883,28 @@ async function showLogModal(orderId) {
             return;
         }
 
+        // Initialize wizard state
+        wizardState = {
+            orderId: orderId,
+            order: order,
+            currentStep: 1,
+            data: {
+                setup: null,
+                target_price: null,
+                stop_loss: null,
+                emotion: null,
+                notes: null
+            }
+        };
+
         // Create modal
         const modal = document.createElement('div');
         modal.id = 'log-modal';
         modal.className = 'modal';
-
-        modal.innerHTML = `
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>📝 Log Your Trade</h3>
-                    <button class="modal-close" onclick="closeLogModal()">×</button>
-                </div>
-                <div class="modal-body">
-                    <div class="order-summary">
-                        <strong>${order.action} ${order.symbol}</strong> @ ₹${order.entry_price} (Qty: ${order.quantity})
-                        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-                            ${new Date(order.timestamp).toLocaleString()}
-                        </div>
-                    </div>
-
-                    <form id="log-form" onsubmit="submitTradeLog(event, '${orderId}')">
-                        <div class="form-group">
-                            <label>🎯 Target Price *</label>
-                            <input type="number" step="0.01" name="target_price" required placeholder="Enter target price">
-                        </div>
-
-                        <div class="form-group">
-                            <label>🛑 Stop Loss *</label>
-                            <input type="number" step="0.01" name="stop_loss" required placeholder="Enter stop loss">
-                        </div>
-
-                        <div class="form-group">
-                            <label>😊 How are you feeling?</label>
-                            <div class="emotion-buttons">
-                                <button type="button" class="emotion-btn" data-emotion="fomo" onclick="selectEmotion(this)">😤 FOMO</button>
-                                <button type="button" class="emotion-btn" data-emotion="fear" onclick="selectEmotion(this)">😨 Fear</button>
-                                <button type="button" class="emotion-btn" data-emotion="greed" onclick="selectEmotion(this)">🤑 Greed</button>
-                                <button type="button" class="emotion-btn" data-emotion="calm" onclick="selectEmotion(this)">😌 Calm</button>
-                                <button type="button" class="emotion-btn" data-emotion="anxiety" onclick="selectEmotion(this)">😰 Anxiety</button>
-                                <button type="button" class="emotion-btn" data-emotion="uncertain" onclick="selectEmotion(this)">🤔 Uncertain</button>
-                                <button type="button" class="emotion-btn" data-emotion="revenge" onclick="selectEmotion(this)">😡 Revenge</button>
-                                <button type="button" class="emotion-btn" data-emotion="disciplined" onclick="selectEmotion(this)">📊 Disciplined</button>
-                            </div>
-                            <input type="hidden" name="emotion" id="emotion-input">
-                        </div>
-
-                        <div class="form-group">
-                            <label>📋 Strategy (optional)</label>
-                            <select name="strategy">
-                                <option value="">Select strategy...</option>
-                                <option value="momentum">Momentum</option>
-                                <option value="breakout">Breakout</option>
-                                <option value="reversal">Reversal</option>
-                                <option value="scalp">Scalp</option>
-                                <option value="swing">Swing</option>
-                                <option value="other">Other</option>
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label>💭 Trade Notes (optional)</label>
-                            <textarea name="notes" rows="3" placeholder="Why did you take this trade?"></textarea>
-                        </div>
-
-                        <div class="modal-actions">
-                            <button type="button" class="btn btn-secondary" onclick="closeLogModal()">Skip for Now</button>
-                            <button type="submit" class="btn btn-primary">Save Log</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        `;
-
         document.body.appendChild(modal);
+
+        // Render first step
+        renderWizardStep();
 
         // Show modal with animation
         setTimeout(() => modal.classList.add('show'), 10);
@@ -927,41 +922,317 @@ async function showLogModal(orderId) {
     }
 }
 
-// Close log modal
-function closeLogModal() {
+// Render current wizard step
+function renderWizardStep() {
     const modal = document.getElementById('log-modal');
-    if (modal) {
-        modal.classList.remove('show');
-        setTimeout(() => modal.remove(), 300);
+    if (!modal) return;
+
+    const { currentStep, order } = wizardState;
+    const totalSteps = 4;
+
+    let stepContent = '';
+
+    // Step 1: Order Info
+    if (currentStep === 1) {
+        stepContent = `
+            <div class="wizard-step">
+                <h4>Order Details</h4>
+                <div class="order-info-card">
+                    <div class="info-row">
+                        <span class="info-label">Symbol</span>
+                        <span class="info-value"><strong>${order.symbol}</strong></span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Action</span>
+                        <span class="info-value trade-${order.action.toLowerCase()}">${order.action}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Quantity</span>
+                        <span class="info-value">${order.quantity}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Entry Price</span>
+                        <span class="info-value">₹${order.entry_price}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Time</span>
+                        <span class="info-value">${new Date(order.timestamp).toLocaleString()}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // Step 2: Setup Selection
+    if (currentStep === 2) {
+        const papaOptions = SETUP_PATTERNS.papa.map(s => `<option value="${s}">${s}</option>`).join('');
+        const otherOptions = SETUP_PATTERNS.other.map(s => `<option value="${s}">${s}</option>`).join('');
+
+        stepContent = `
+            <div class="wizard-step">
+                <h4>📊 What's your setup?</h4>
+                <div class="form-group">
+                    <label>Select Setup Pattern</label>
+                    <select id="setup-select" onchange="handleSetupChange(this)">
+                        <option value="">Choose a pattern...</option>
+                        <optgroup label="PAPA Decision Sheet">
+                            ${papaOptions}
+                        </optgroup>
+                        <optgroup label="Other Setups">
+                            ${otherOptions}
+                        </optgroup>
+                        <option value="__custom__">✏️ Custom (type your own)</option>
+                    </select>
+                </div>
+                <div class="form-group" id="custom-setup-group" style="display: none;">
+                    <label>Custom Setup Name</label>
+                    <input type="text" id="custom-setup-input" placeholder="Enter your setup name...">
+                </div>
+            </div>
+        `;
+    }
+
+    // Step 3: Target & Stop Loss
+    if (currentStep === 3) {
+        const entryPrice = parseFloat(order.entry_price);
+        const isBuy = order.action === 'BUY';
+
+        // Smart defaults: 2% for target and SL
+        const defaultTarget = isBuy
+            ? (entryPrice * 1.02).toFixed(2)
+            : (entryPrice * 0.98).toFixed(2);
+        const defaultSL = isBuy
+            ? (entryPrice * 0.98).toFixed(2)
+            : (entryPrice * 1.02).toFixed(2);
+
+        stepContent = `
+            <div class="wizard-step">
+                <h4>🎯 Set your levels</h4>
+                <div class="entry-price-reminder">
+                    Entry: ₹${entryPrice}
+                </div>
+                <div class="form-group">
+                    <label>Target Price *</label>
+                    <input type="number" step="0.05" id="target-input" value="${defaultTarget}"
+                           oninput="updateRiskReward()" required>
+                    <small class="input-hint">Suggested: ₹${defaultTarget} (2% ${isBuy ? 'above' : 'below'})</small>
+                </div>
+                <div class="form-group">
+                    <label>Stop Loss *</label>
+                    <input type="number" step="0.05" id="sl-input" value="${defaultSL}"
+                           oninput="updateRiskReward()" required>
+                    <small class="input-hint">Suggested: ₹${defaultSL} (2% ${isBuy ? 'below' : 'above'})</small>
+                </div>
+                <div class="risk-reward-display" id="rr-display">
+                    Risk:Reward = 1:1
+                </div>
+            </div>
+        `;
+    }
+
+    // Step 4: Emotion & Notes
+    if (currentStep === 4) {
+        stepContent = `
+            <div class="wizard-step">
+                <h4>😊 How are you feeling?</h4>
+                <div class="emotion-grid">
+                    <button type="button" class="emotion-btn-new" data-emotion="disciplined" onclick="selectEmotionNew(this)">
+                        <span class="emotion-icon">📊</span>
+                        <span class="emotion-label">Disciplined</span>
+                    </button>
+                    <button type="button" class="emotion-btn-new" data-emotion="calm" onclick="selectEmotionNew(this)">
+                        <span class="emotion-icon">😌</span>
+                        <span class="emotion-label">Calm</span>
+                    </button>
+                    <button type="button" class="emotion-btn-new" data-emotion="fomo" onclick="selectEmotionNew(this)">
+                        <span class="emotion-icon">😤</span>
+                        <span class="emotion-label">FOMO</span>
+                    </button>
+                    <button type="button" class="emotion-btn-new" data-emotion="greed" onclick="selectEmotionNew(this)">
+                        <span class="emotion-icon">🤑</span>
+                        <span class="emotion-label">Greed</span>
+                    </button>
+                    <button type="button" class="emotion-btn-new" data-emotion="fear" onclick="selectEmotionNew(this)">
+                        <span class="emotion-icon">😨</span>
+                        <span class="emotion-label">Fear</span>
+                    </button>
+                    <button type="button" class="emotion-btn-new" data-emotion="anxiety" onclick="selectEmotionNew(this)">
+                        <span class="emotion-icon">😰</span>
+                        <span class="emotion-label">Anxiety</span>
+                    </button>
+                    <button type="button" class="emotion-btn-new" data-emotion="uncertain" onclick="selectEmotionNew(this)">
+                        <span class="emotion-icon">🤔</span>
+                        <span class="emotion-label">Uncertain</span>
+                    </button>
+                    <button type="button" class="emotion-btn-new" data-emotion="revenge" onclick="selectEmotionNew(this)">
+                        <span class="emotion-icon">😡</span>
+                        <span class="emotion-label">Revenge</span>
+                    </button>
+                </div>
+                <div class="form-group">
+                    <label>💭 Trade Notes (optional)</label>
+                    <textarea id="notes-input" rows="4" placeholder="Why did you take this trade? Any observations?"></textarea>
+                </div>
+            </div>
+        `;
+    }
+
+    modal.innerHTML = `
+        <div class="modal-content wizard-modal">
+            <div class="modal-header">
+                <div>
+                    <h3>📝 Log Your Trade</h3>
+                    <div class="wizard-progress">Step ${currentStep} of ${totalSteps}</div>
+                </div>
+                <button class="modal-close" onclick="closeLogModal()">×</button>
+            </div>
+            <div class="modal-body">
+                ${stepContent}
+            </div>
+            <div class="wizard-nav">
+                ${currentStep > 1 ? '<button class="btn btn-secondary" onclick="wizardPrevious()">← Back</button>' : '<button class="btn btn-secondary" onclick="closeLogModal()">Skip</button>'}
+                ${currentStep < totalSteps
+                    ? '<button class="btn btn-primary" onclick="wizardNext()">Next →</button>'
+                    : '<button class="btn btn-success" onclick="wizardSubmit()">Save Log</button>'}
+            </div>
+        </div>
+    `;
+
+    // Initialize R:R calculation if on step 3
+    if (currentStep === 3) {
+        setTimeout(() => updateRiskReward(), 100);
     }
 }
 
-// Select emotion button
-function selectEmotion(button) {
-    // Remove selection from all buttons
-    document.querySelectorAll('.emotion-btn').forEach(btn => btn.classList.remove('selected'));
-
-    // Select this button
-    button.classList.add('selected');
-
-    // Update hidden input
-    document.getElementById('emotion-input').value = button.dataset.emotion;
+// Handle setup dropdown change
+function handleSetupChange(select) {
+    const customGroup = document.getElementById('custom-setup-group');
+    if (select.value === '__custom__') {
+        customGroup.style.display = 'block';
+        wizardState.data.setup = null;
+    } else {
+        customGroup.style.display = 'none';
+        wizardState.data.setup = select.value;
+    }
 }
 
-// Submit trade log
-async function submitTradeLog(event, orderId) {
-    event.preventDefault();
+// Update Risk:Reward ratio
+function updateRiskReward() {
+    const targetInput = document.getElementById('target-input');
+    const slInput = document.getElementById('sl-input');
+    const rrDisplay = document.getElementById('rr-display');
 
-    const form = event.target;
-    const formData = new FormData(form);
+    if (!targetInput || !slInput || !rrDisplay) return;
+
+    const entryPrice = parseFloat(wizardState.order.entry_price);
+    const targetPrice = parseFloat(targetInput.value);
+    const stopLoss = parseFloat(slInput.value);
+    const isBuy = wizardState.order.action === 'BUY';
+
+    if (isNaN(targetPrice) || isNaN(stopLoss)) {
+        rrDisplay.textContent = 'Risk:Reward = -';
+        return;
+    }
+
+    const reward = isBuy ? (targetPrice - entryPrice) : (entryPrice - targetPrice);
+    const risk = isBuy ? (entryPrice - stopLoss) : (stopLoss - entryPrice);
+
+    if (risk <= 0 || reward <= 0) {
+        rrDisplay.innerHTML = '<span style="color: var(--error-red);">⚠️ Check your levels</span>';
+        return;
+    }
+
+    const ratio = (reward / risk).toFixed(2);
+    const color = ratio >= 2 ? 'var(--success-green)' : ratio >= 1 ? 'var(--warning-orange)' : 'var(--error-red)';
+    rrDisplay.innerHTML = `<span style="color: ${color};">Risk:Reward = 1:${ratio}</span>`;
+}
+
+// Select emotion (new wizard version)
+function selectEmotionNew(button) {
+    document.querySelectorAll('.emotion-btn-new').forEach(btn => btn.classList.remove('selected'));
+    button.classList.add('selected');
+    wizardState.data.emotion = button.dataset.emotion;
+}
+
+// Wizard navigation: Next
+function wizardNext() {
+    const { currentStep } = wizardState;
+
+    // Validate current step before proceeding
+    if (currentStep === 2) {
+        const setupSelect = document.getElementById('setup-select');
+        const customInput = document.getElementById('custom-setup-input');
+
+        if (setupSelect.value === '__custom__') {
+            if (!customInput.value.trim()) {
+                showToast('Please enter a custom setup name', 'error');
+                return;
+            }
+            wizardState.data.setup = customInput.value.trim();
+        } else if (!setupSelect.value) {
+            showToast('Please select a setup pattern', 'error');
+            return;
+        } else {
+            wizardState.data.setup = setupSelect.value;
+        }
+    }
+
+    if (currentStep === 3) {
+        const targetInput = document.getElementById('target-input');
+        const slInput = document.getElementById('sl-input');
+
+        if (!targetInput.value || !slInput.value) {
+            showToast('Please enter target and stop loss', 'error');
+            return;
+        }
+
+        wizardState.data.target_price = parseFloat(targetInput.value);
+        wizardState.data.stop_loss = parseFloat(slInput.value);
+
+        // Validate levels
+        const entryPrice = parseFloat(wizardState.order.entry_price);
+        const isBuy = wizardState.order.action === 'BUY';
+        const reward = isBuy ? (wizardState.data.target_price - entryPrice) : (entryPrice - wizardState.data.target_price);
+        const risk = isBuy ? (entryPrice - wizardState.data.stop_loss) : (wizardState.data.stop_loss - entryPrice);
+
+        if (risk <= 0 || reward <= 0) {
+            showToast('Invalid target/SL levels. Please check your entry.', 'error');
+            return;
+        }
+    }
+
+    // Move to next step
+    wizardState.currentStep++;
+    renderWizardStep();
+}
+
+// Wizard navigation: Previous
+function wizardPrevious() {
+    // Save current step data if on step 4
+    if (wizardState.currentStep === 4) {
+        const notesInput = document.getElementById('notes-input');
+        if (notesInput) {
+            wizardState.data.notes = notesInput.value.trim() || null;
+        }
+    }
+
+    wizardState.currentStep--;
+    renderWizardStep();
+}
+
+// Wizard submit
+async function wizardSubmit() {
+    // Collect data from step 4
+    const notesInput = document.getElementById('notes-input');
+    wizardState.data.notes = notesInput?.value.trim() || null;
 
     const logData = {
-        order_id: orderId,
-        target_price: parseFloat(formData.get('target_price')),
-        stop_loss: parseFloat(formData.get('stop_loss')),
-        emotion: formData.get('emotion') || null,
-        strategy: formData.get('strategy') || null,
-        notes: formData.get('notes') || null
+        order_id: wizardState.orderId,
+        target_price: wizardState.data.target_price,
+        stop_loss: wizardState.data.stop_loss,
+        emotion: wizardState.data.emotion,
+        strategy: wizardState.data.setup,  // Using setup as strategy
+        notes: wizardState.data.notes
     };
 
     try {
@@ -984,6 +1255,15 @@ async function submitTradeLog(event, orderId) {
     } catch (error) {
         console.error('Failed to submit trade log:', error);
         showToast('Failed to submit trade log', 'error');
+    }
+}
+
+// Close log modal
+function closeLogModal() {
+    const modal = document.getElementById('log-modal');
+    if (modal) {
+        modal.classList.remove('show');
+        setTimeout(() => modal.remove(), 300);
     }
 }
 
