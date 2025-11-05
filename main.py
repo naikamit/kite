@@ -936,6 +936,62 @@ async def get_monitored_positions():
         )
 
 
+@app.get("/api/stats")
+async def get_stats():
+    """Get database statistics for debugging."""
+    if not kite_client:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Kite client not initialized"}
+        )
+
+    try:
+        with kite_client.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Count total orders
+            cursor.execute("SELECT COUNT(*) as count FROM orders")
+            total_orders = cursor.fetchone()["count"]
+
+            # Count unlogged orders
+            cursor.execute("SELECT COUNT(*) as count FROM orders WHERE logged = 0 AND status = 'COMPLETE'")
+            unlogged = cursor.fetchone()["count"]
+
+            # Count logged orders
+            cursor.execute("SELECT COUNT(*) as count FROM orders WHERE logged = 1")
+            logged = cursor.fetchone()["count"]
+
+            # Count trade logs
+            cursor.execute("SELECT COUNT(*) as count FROM trade_logs")
+            trade_logs = cursor.fetchone()["count"]
+
+            # Get sample unlogged orders
+            cursor.execute("""
+                SELECT order_id, symbol, action, quantity, entry_price, timestamp, status
+                FROM orders
+                WHERE logged = 0 AND status = 'COMPLETE'
+                ORDER BY timestamp DESC
+                LIMIT 5
+            """)
+            sample_unlogged = [dict(row) for row in cursor.fetchall()]
+
+            return {
+                "success": True,
+                "stats": {
+                    "total_orders": total_orders,
+                    "unlogged_orders": unlogged,
+                    "logged_orders": logged,
+                    "trade_logs_count": trade_logs,
+                    "sample_unlogged": sample_unlogged
+                }
+            }
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8001))
     print(f"🚀 Starting Kite Connect Analytics Dashboard on port {port}...")
