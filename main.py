@@ -27,15 +27,21 @@ templates = Jinja2Templates(directory="templates")
 print("🔍 Checking environment variables...")
 print(f"   KITE_API_KEY: {'✓ Set' if os.getenv('KITE_API_KEY') else '✗ Missing'}")
 print(f"   KITE_API_SECRET: {'✓ Set' if os.getenv('KITE_API_SECRET') else '✗ Missing'}")
-print(f"   KITE_ACCESS_TOKEN: {'✓ Set' if os.getenv('KITE_ACCESS_TOKEN') else '✗ Missing'}")
 
 try:
     kite_client = KiteClient()
     print("✅ Kite Connect client initialized successfully")
+
+    # Verify token is valid
+    if not kite_client.is_token_valid():
+        print("⚠️ Access token is invalid or expired. User will be redirected to /setup")
+        # Don't set to None, keep client but it will redirect on dashboard access
+
 except Exception as e:
     print(f"❌ Failed to initialize Kite Connect client: {e}")
     print(f"   Error type: {type(e).__name__}")
     print(f"   Error details: {str(e)}")
+    print(f"   User will be redirected to /setup page")
     kite_client = None
 
 # Initialize background scheduler
@@ -188,9 +194,15 @@ else:
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     """Serve the main dashboard page."""
-    # If no access token is set, redirect to setup page
-    if not os.getenv("KITE_ACCESS_TOKEN"):
+    # If no kite client or token is invalid, redirect to setup
+    if not kite_client:
         return RedirectResponse(url="/setup")
+
+    # Check if token is valid
+    if not kite_client.is_token_valid():
+        print("🔄 Token invalid, redirecting to setup for re-authentication")
+        return RedirectResponse(url="/setup")
+
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
 
@@ -221,6 +233,8 @@ async def setup_page(request: Request):
 @app.get("/callback")
 async def oauth_callback(request: Request, request_token: str = None, status: str = None):
     """Handle OAuth callback from Kite Connect."""
+    global kite_client
+
     if status != "success" or not request_token:
         return templates.TemplateResponse("setup.html", {
             "request": request,
@@ -246,14 +260,26 @@ async def oauth_callback(request: Request, request_token: str = None, status: st
         data = kite.generate_session(request_token, api_secret=api_secret)
         access_token = data["access_token"]
 
-        # Return the token to display to user
+        # Save token to database
+        if kite_client:
+            kite_client.set_access_token(access_token)
+        else:
+            # Reinitialize kite_client if it was None
+            try:
+                kite_client = KiteClient()
+                kite_client.set_access_token(access_token)
+                print("✅ Kite client reinitialized with new token")
+            except Exception as init_error:
+                print(f"⚠️ Could not reinitialize client: {init_error}")
+
+        # Return success message
         return templates.TemplateResponse("setup.html", {
             "request": request,
             "success": True,
             "access_token": access_token,
             "api_key": api_key,
             "has_token": True,
-            "message": "Access token generated successfully! Add it to your Render environment variables."
+            "message": "Access token generated and saved! Your dashboard is now ready."
         })
 
     except Exception as e:

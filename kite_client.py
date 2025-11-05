@@ -15,18 +15,71 @@ class KiteClient:
     """Wrapper for Kite Connect API operations."""
 
     def __init__(self):
-        """Initialize Kite Connect client with credentials from environment."""
+        """Initialize Kite Connect client with credentials from database or environment."""
         self.api_key = os.getenv("KITE_API_KEY")
-        self.access_token = os.getenv("KITE_ACCESS_TOKEN")
 
-        if not self.api_key or not self.access_token:
-            raise ValueError("KITE_API_KEY and KITE_ACCESS_TOKEN must be set in environment")
+        if not self.api_key:
+            raise ValueError("KITE_API_KEY must be set in environment")
+
+        # Initialize database first
+        self.db = TradingDatabase()
+
+        # Try to load access token from database first, fallback to environment
+        self.access_token = self.db.get_setting("access_token")
+        if not self.access_token:
+            # Fallback to environment variable (for first-time setup)
+            self.access_token = os.getenv("KITE_ACCESS_TOKEN")
+            if self.access_token:
+                # Save to database for future use
+                self.db.save_setting("access_token", self.access_token)
+                print("💾 Access token saved to database from environment")
+
+        if not self.access_token:
+            raise ValueError("No access token found. Please authenticate via /setup page")
 
         self.kite = KiteConnect(api_key=self.api_key)
         self.kite.set_access_token(self.access_token)
 
-        # Initialize database
-        self.db = TradingDatabase()
+        print(f"🔑 Using access token from database")
+
+    def set_access_token(self, access_token: str) -> bool:
+        """
+        Set new access token and save to database.
+
+        Args:
+            access_token: New access token from OAuth flow
+
+        Returns:
+            bool: True if successful
+        """
+        try:
+            self.access_token = access_token
+            self.kite.set_access_token(access_token)
+            self.db.save_setting("access_token", access_token)
+            print("✅ Access token updated and saved to database")
+            return True
+        except Exception as e:
+            print(f"❌ Failed to set access token: {e}")
+            return False
+
+    def is_token_valid(self) -> bool:
+        """
+        Check if current access token is valid.
+
+        Returns:
+            bool: True if token is valid
+        """
+        try:
+            self.kite.profile()
+            return True
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "token" in error_msg or "session" in error_msg or "invalid" in error_msg:
+                print(f"⚠️ Access token is invalid or expired: {e}")
+                return False
+            # Other errors might not be token-related
+            print(f"⚠️ API error (might not be token): {e}")
+            return False
 
     def get_profile(self) -> Dict:
         """

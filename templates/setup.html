@@ -171,26 +171,28 @@
 
             {% if success %}
             <div class="success-message">
-                <h3>✅ Access Token Generated Successfully!</h3>
+                <h3>✅ Access Token Generated & Saved!</h3>
                 <p>{{ message }}</p>
 
-                <div style="margin-top: 20px;">
-                    <label style="display: block; margin-bottom: 8px; font-weight: 600;">Your Access Token:</label>
-                    <div class="token-display">
-                        <button class="btn btn-primary copy-btn" onclick="copyToken()">Copy</button>
-                        <span id="access-token-value">{{ access_token }}</span>
-                    </div>
+                <div class="info-box" style="margin-top: 20px;">
+                    <strong>✨ Automatic Token Management Enabled!</strong><br><br>
+                    Your access token has been automatically saved to the database. You can now:
+                    <ul style="margin: 12px 0 0 20px; padding: 0;">
+                        <li>Access your dashboard immediately - <a href="/" class="link">Click here</a></li>
+                        <li>Token is automatically loaded on server restart</li>
+                        <li>When expired, you'll be redirected back here to re-authenticate</li>
+                        <li><strong>No more manual environment variable updates needed!</strong></li>
+                    </ul>
                 </div>
 
-                <div class="info-box" style="margin-top: 20px;">
-                    <strong>Next Steps:</strong>
-                    <ol style="margin: 12px 0 0 20px; padding: 0;">
-                        <li>Copy the access token above</li>
-                        <li>Go to your Render dashboard → Your service → Environment</li>
-                        <li>Add/update the environment variable: <code>KITE_ACCESS_TOKEN</code></li>
-                        <li>Save and wait for the service to redeploy</li>
-                        <li>Return to the <a href="/" class="link">dashboard</a></li>
-                    </ol>
+                <div style="margin-top: 20px;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--text-muted); font-size: 12px;">
+                        Token saved (for reference):
+                    </label>
+                    <div class="token-display">
+                        <button class="btn btn-secondary copy-btn" onclick="copyToken()">Copy</button>
+                        <span id="access-token-value" style="font-size: 11px; opacity: 0.7;">{{ access_token }}</span>
+                    </div>
                 </div>
             </div>
             {% endif %}
@@ -268,10 +270,11 @@ https://kite-75me.onrender.com/postback
         <div class="setup-card">
             <h2 style="font-size: 20px; margin-bottom: 16px;">📝 Important Notes</h2>
             <ul style="color: var(--text-secondary); line-height: 1.8; margin-left: 20px;">
-                <li>Access tokens expire daily and need to be regenerated</li>
+                <li><strong>Automatic Token Management:</strong> Tokens are stored in database and loaded automatically</li>
+                <li><strong>Token Expiry:</strong> When expired, you'll be auto-redirected to re-authenticate</li>
                 <li>Keep your API secret secure and never commit it to version control</li>
                 <li>The redirect URL must exactly match what's configured in Kite Connect</li>
-                <li>After updating environment variables on Render, the service will automatically redeploy</li>
+                <li>Only KITE_API_KEY and KITE_API_SECRET need to be in environment variables</li>
             </ul>
         </div>
     </div>

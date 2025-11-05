@@ -242,6 +242,15 @@ class TradingDatabase:
                 ON position_monitoring(symbol)
             """)
 
+            # Settings table - for storing access token and other config
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
     def save_trades(self, trades: List[Dict]) -> int:
         """
         Save trades to database (insert or ignore duplicates).
@@ -801,4 +810,39 @@ class TradingDatabase:
                 return cursor.rowcount > 0
             except Exception as e:
                 print(f"Error deactivating monitored position: {e}")
+                return False
+
+    # Settings Methods (for token management)
+
+    def save_setting(self, key: str, value: str) -> bool:
+        """Save or update a setting."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO settings (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                """, (key, value, datetime.now().isoformat()))
+                return True
+            except Exception as e:
+                print(f"Error saving setting {key}: {e}")
+                return False
+
+    def get_setting(self, key: str) -> Optional[str]:
+        """Get a setting value by key."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            return row["value"] if row else None
+
+    def delete_setting(self, key: str) -> bool:
+        """Delete a setting."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("DELETE FROM settings WHERE key = ?", (key,))
+                return cursor.rowcount > 0
+            except Exception as e:
+                print(f"Error deleting setting {key}: {e}")
                 return False
