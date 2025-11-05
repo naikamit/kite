@@ -1049,6 +1049,32 @@ function showMonitoredPositionsWidget(positions) {
     widget.style.display = 'block';
 }
 
+// Sync all historical orders
+async function syncHistoricalOrders() {
+    const syncBtn = document.getElementById('sync-orders-btn');
+    syncBtn.disabled = true;
+    syncBtn.innerHTML = '<span class="btn-icon">⏳</span> Syncing...';
+
+    try {
+        const response = await fetch('/api/sync-orders');
+        const result = await response.json();
+
+        if (result.success) {
+            showToast(`Synced ${result.new_orders} new orders from history!`, 'success');
+            // Reload unlogged orders banner to show new orders
+            await loadUnloggedOrdersBanner();
+        } else {
+            showToast(`Sync failed: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Failed to sync orders:', error);
+        showToast('Failed to sync historical orders', 'error');
+    } finally {
+        syncBtn.disabled = false;
+        syncBtn.innerHTML = '<span class="btn-icon">⬇</span> Sync History';
+    }
+}
+
 // Initialize dashboard on page load
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('🚀 Initializing Kite Connect Analytics Dashboard...');
@@ -1056,6 +1082,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Setup refresh button
     const refreshBtn = document.getElementById('refresh-btn');
     refreshBtn.addEventListener('click', refreshDashboard);
+
+    // Setup sync orders button
+    const syncBtn = document.getElementById('sync-orders-btn');
+    syncBtn.addEventListener('click', syncHistoricalOrders);
 
     // Request notification permission
     await requestNotificationPermission();

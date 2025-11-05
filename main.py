@@ -587,6 +587,27 @@ async def sync_trades():
     return result
 
 
+@app.get("/api/sync-orders")
+async def sync_orders():
+    """Manually trigger full order sync (historical + today) from Kite API."""
+    if not kite_client:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Kite client not initialized"}
+        )
+
+    print("🔄 Manual full order sync triggered...")
+    result = kite_client.sync_orders_to_db()
+
+    if not result.get("success"):
+        return JSONResponse(
+            status_code=500,
+            content=result
+        )
+
+    return result
+
+
 @app.get("/api/sync-positions")
 async def sync_positions():
     """Manually trigger position sync from Kite API to database."""

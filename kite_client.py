@@ -529,44 +529,96 @@ class KiteClient:
     def sync_orders_to_db(self) -> Dict:
         """
         Sync orders from Kite API to database.
-        Detects new completed orders for logging.
+        Uses trades() API to get ALL historical trades, then creates order entries.
+        Also syncs today's orders from orders() API.
 
         Returns:
             Dict with sync statistics
         """
         try:
-            # Fetch all orders from Kite API
-            api_orders = self.kite.orders()
-
             new_orders = 0
             completed_orders = 0
 
-            for order in api_orders:
-                # Only save completed orders for logging
-                if order.get("status") in ["COMPLETE", "CANCELLED", "REJECTED"]:
-                    order_data = {
-                        "order_id": order.get("order_id"),
-                        "trade_id": order.get("trade_id"),
-                        "symbol": order.get("tradingsymbol"),
-                        "exchange": order.get("exchange"),
-                        "action": order.get("transaction_type"),  # BUY/SELL
-                        "quantity": order.get("quantity", 0),
-                        "entry_price": order.get("average_price", 0),
-                        "order_type": order.get("order_type"),
-                        "product": order.get("product"),
-                        "status": order.get("status"),
-                        "timestamp": str(order.get("order_timestamp", datetime.now().isoformat()))
-                    }
+            # STEP 1: Sync historical trades (all time)
+            # The trades() API returns ALL executed trades, not just today
+            try:
+                api_trades = self.kite.trades()
 
-                    # Check if this is a new order
+                # Group trades by order_id to create order entries
+                orders_from_trades = {}
+                for trade in api_trades:
+                    order_id = trade.get("order_id")
+                    if not order_id:
+                        continue
+
+                    # If we haven't seen this order yet, create entry
+                    if order_id not in orders_from_trades:
+                        timestamp = trade.get('order_timestamp', trade.get('fill_timestamp'))
+                        orders_from_trades[order_id] = {
+                            "order_id": order_id,
+                            "trade_id": trade.get("trade_id"),
+                            "symbol": trade.get("tradingsymbol"),
+                            "exchange": trade.get("exchange"),
+                            "action": trade.get("transaction_type"),
+                            "quantity": trade.get("quantity", 0),
+                            "entry_price": trade.get("average_price", trade.get("price", 0)),
+                            "order_type": "MARKET",  # trades don't have order_type
+                            "product": trade.get("product"),
+                            "status": "COMPLETE",  # trades are always completed
+                            "timestamp": str(timestamp) if timestamp else datetime.now().isoformat()
+                        }
+                    else:
+                        # Update quantity if there are multiple fills for same order
+                        orders_from_trades[order_id]["quantity"] += trade.get("quantity", 0)
+
+                # Save orders from trades
+                for order_data in orders_from_trades.values():
                     existing = self.db.get_order_by_id(order_data["order_id"])
                     if not existing:
                         new_orders += 1
-                        if order.get("status") == "COMPLETE":
-                            completed_orders += 1
-
-                    # Save to database (will update if exists)
+                        completed_orders += 1
                     self.db.save_order(order_data)
+
+                print(f"   Synced {len(orders_from_trades)} orders from trades() API")
+
+            except Exception as trade_error:
+                print(f"⚠️ Failed to sync trades: {trade_error}")
+
+            # STEP 2: Sync today's orders from orders() API (for pending/cancelled/rejected)
+            try:
+                api_orders = self.kite.orders()
+
+                for order in api_orders:
+                    # Save all orders (complete, pending, cancelled, rejected)
+                    if order.get("status") in ["COMPLETE", "CANCELLED", "REJECTED", "OPEN", "TRIGGER PENDING"]:
+                        order_data = {
+                            "order_id": order.get("order_id"),
+                            "trade_id": order.get("trade_id"),
+                            "symbol": order.get("tradingsymbol"),
+                            "exchange": order.get("exchange"),
+                            "action": order.get("transaction_type"),
+                            "quantity": order.get("quantity", 0),
+                            "entry_price": order.get("average_price", 0),
+                            "order_type": order.get("order_type"),
+                            "product": order.get("product"),
+                            "status": order.get("status"),
+                            "timestamp": str(order.get("order_timestamp", datetime.now().isoformat()))
+                        }
+
+                        # Check if this is a new order
+                        existing = self.db.get_order_by_id(order_data["order_id"])
+                        if not existing:
+                            new_orders += 1
+                            if order.get("status") == "COMPLETE":
+                                completed_orders += 1
+
+                        # Save to database (will update if exists)
+                        self.db.save_order(order_data)
+
+                print(f"   Synced {len(api_orders)} orders from orders() API (today)")
+
+            except Exception as order_error:
+                print(f"⚠️ Failed to sync today's orders: {order_error}")
 
             return {
                 "success": True,
