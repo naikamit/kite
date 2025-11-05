@@ -218,6 +218,12 @@ async def raw_data(request: Request):
     return templates.TemplateResponse("raw.html", {"request": request})
 
 
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_panel(request: Request):
+    """Serve the admin panel with all API endpoints."""
+    return templates.TemplateResponse("admin.html", {"request": request})
+
+
 @app.get("/setup", response_class=HTMLResponse)
 async def setup_page(request: Request):
     """Serve the OAuth setup page."""

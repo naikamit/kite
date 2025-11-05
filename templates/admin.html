@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - Kite Connect</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .admin-container {
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+        }
+        .admin-section {
+            background: var(--bg-card);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        .admin-section h2 {
+            font-size: 20px;
+            margin-bottom: 20px;
+            color: var(--text-primary);
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 12px;
+        }
+        .endpoint-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 16px;
+        }
+        .endpoint-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+        }
+        .endpoint-card h3 {
+            font-size: 14px;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+        .endpoint-card p {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+        }
+        .endpoint-card .btn {
+            width: 100%;
+            padding: 10px;
+            font-size: 13px;
+        }
+        .result-box {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            color: var(--text-primary);
+            white-space: pre-wrap;
+            word-break: break-all;
+            display: none;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: var(--accent-blue);
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="admin-container">
+        <a href="/" class="back-link">← Back to Dashboard</a>
+
+        <div class="admin-section">
+            <h2>🔍 System Status & Debug</h2>
+            <div class="endpoint-grid">
+                <div class="endpoint-card">
+                    <h3>Database Statistics</h3>
+                    <p>View total orders, logged/unlogged counts, sample data</p>
+                    <button class="btn btn-primary" onclick="callEndpoint('/api/stats', 'stats')">
+                        View Stats
+                    </button>
+                </div>
+
+                <div class="endpoint-card">
+                    <h3>Health Check</h3>
+                    <p>Check API and Kite Connect health status</p>
+                    <button class="btn btn-primary" onclick="callEndpoint('/api/health', 'health')">
+                        Check Health
+                    </button>
+                </div>
+
+                <div class="endpoint-card">
+                    <h3>User Profile</h3>
+                    <p>View Kite Connect user profile information</p>
+                    <button class="btn btn-primary" onclick="callEndpoint('/api/profile', 'profile')">
+                        View Profile
+                    </button>
+                </div>
+            </div>
+            <div id="result-stats" class="result-box"></div>
+        </div>
+
+        <div class="admin-section">
+            <h2>🔄 Data Sync Operations</h2>
+            <div class="endpoint-grid">
+                <div class="endpoint-card">
+                    <h3>Sync All Orders (Historical)</h3>
+                    <p>Fetch ALL historical trades + today's orders from Kite</p>
+                    <button class="btn btn-success" onclick="callEndpoint('/api/sync-orders', 'sync-orders')">
+                        Sync Orders
+                    </button>
+                </div>
+
+                <div class="endpoint-card">
+                    <h3>Sync Trades</h3>
+                    <p>Sync trade data to database (legacy endpoint)</p>
+                    <button class="btn btn-success" onclick="callEndpoint('/api/sync-trades', 'sync-trades')">
+                        Sync Trades
+                    </button>
+                </div>
+
+                <div class="endpoint-card">
+                    <h3>Sync Positions</h3>
+                    <p>Sync current positions from Kite API</p>
+                    <button class="btn btn-success" onclick="callEndpoint('/api/sync-positions', 'sync-positions')">
+                        Sync Positions
+                    </button>
+                </div>
+            </div>
+            <div id="result-sync" class="result-box"></div>
+        </div>
+
+        <div class="admin-section">
+            <h2>📊 Trading Data</h2>
+            <div class="endpoint-grid">
+                <div class="endpoint-card">
+                    <h3>Today's Trades</h3>
+                    <p>View all trades executed today</p>
+                    <button class="btn btn-primary" onclick="callEndpoint('/api/trades', 'trades')">
+                        View Trades
+                    </button>
+                </div>
+
+                <div class="endpoint-card">
+                    <h3>Current Positions</h3>
+                    <p>View open positions with P&L</p>
+                    <button class="btn btn-primary" onclick="callEndpoint('/api/positions', 'positions')">
+                        View Positions
+                    </button>
+                </div>
+
+                <div class="endpoint-card">
+                    <h3>Holdings</h3>
+                    <p>View long-term holdings</p>
+                    <button class="btn btn-primary" onclick="callEndpoint('/api/holdings', 'holdings')">
+                        View Holdings
+                    </button>
+                </div>
+
+                <div class="endpoint-card">
+                    <h3>Account Funds</h3>
+                    <p>View available margins and funds</p>
+                    <button class="btn btn-primary" onclick="callEndpoint('/api/funds', 'funds')">
+                        View Funds
+                    </button>
+                </div>
+
+                <div class="endpoint-card">
+                    <h3>Analytics Data</h3>
+                    <p>View chart data for analytics dashboard</p>
+                    <button class="btn btn-primary" onclick="callEndpoint('/api/analytics', 'analytics')">
+                        View Analytics
+                    </button>
+                </div>
+            </div>
+            <div id="result-data" class="result-box"></div>
+        </div>
+
+        <div class="admin-section">
+            <h2>📝 Trading Log System</h2>
+            <div class="endpoint-grid">
+                <div class="endpoint-card">
+                    <h3>Unlogged Orders</h3>
+                    <p>View orders waiting to be logged with emotions</p>
+                    <button class="btn btn-warning" onclick="callEndpoint('/api/unlogged-orders', 'unlogged')">
+                        View Unlogged
+                    </button>
+                </div>
+
+                <div class="endpoint-card">
+                    <h3>All Trade Logs</h3>
+                    <p>View all logged trades with emotions and notes</p>
+                    <button class="btn btn-primary" onclick="callEndpoint('/api/trade-logs', 'trade-logs')">
+                        View All Logs
+                    </button>
+                </div>
+
+                <div class="endpoint-card">
+                    <h3>Open Trade Logs</h3>
+                    <p>View only open position logs</p>
+                    <button class="btn btn-primary" onclick="callEndpoint('/api/trade-logs/open', 'open-logs')">
+                        View Open Logs
+                    </button>
+                </div>
+
+                <div class="endpoint-card">
+                    <h3>Monitored Positions</h3>
+                    <p>View actively monitored positions with alerts</p>
+                    <button class="btn btn-primary" onclick="callEndpoint('/api/monitored-positions', 'monitored')">
+                        View Monitored
+                    </button>
+                </div>
+
+                <div class="endpoint-card">
+                    <h3>Pending Notifications</h3>
+                    <p>View pending order notifications queue</p>
+                    <button class="btn btn-primary" onclick="callEndpoint('/api/notifications', 'notifications')">
+                        View Notifications
+                    </button>
+                </div>
+            </div>
+            <div id="result-logs" class="result-box"></div>
+        </div>
+
+        <div class="admin-section">
+            <h2>📤 Raw Data Export</h2>
+            <div class="endpoint-grid">
+                <div class="endpoint-card">
+                    <h3>Raw Trades (Last 30 Days)</h3>
+                    <p>View raw historical trade data</p>
+                    <button class="btn btn-primary" onclick="callEndpoint('/api/raw/trades', 'raw-trades')">
+                        View Raw Trades
+                    </button>
+                </div>
+
+                <div class="endpoint-card">
+                    <h3>Raw Positions (Last 30 Days)</h3>
+                    <p>View raw position snapshots</p>
+                    <button class="btn btn-primary" onclick="callEndpoint('/api/raw/positions', 'raw-positions')">
+                        View Raw Positions
+                    </button>
+                </div>
+
+                <div class="endpoint-card">
+                    <h3>Raw Data Viewer Page</h3>
+                    <p>Open full raw data viewer with export options</p>
+                    <a href="/raw" target="_blank">
+                        <button class="btn btn-secondary">
+                            Open Raw Viewer
+                        </button>
+                    </a>
+                </div>
+            </div>
+            <div id="result-raw" class="result-box"></div>
+        </div>
+
+        <div class="admin-section">
+            <h2>⚙️ Quick Actions</h2>
+            <div class="endpoint-grid">
+                <div class="endpoint-card">
+                    <h3>Re-authenticate</h3>
+                    <p>Go to OAuth setup page to generate new token</p>
+                    <a href="/setup">
+                        <button class="btn btn-secondary">
+                            Open Setup Page
+                        </button>
+                    </a>
+                </div>
+
+                <div class="endpoint-card">
+                    <h3>Main Dashboard</h3>
+                    <p>Return to main analytics dashboard</p>
+                    <a href="/">
+                        <button class="btn btn-primary">
+                            Open Dashboard
+                        </button>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function callEndpoint(url, resultId) {
+            const resultBox = document.getElementById(`result-${resultId.split('-')[0]}`);
+            resultBox.style.display = 'block';
+            resultBox.textContent = 'Loading...';
+            resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                resultBox.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultBox.textContent = `Error: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>
