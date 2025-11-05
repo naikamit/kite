@@ -819,35 +819,37 @@ function hideUnloggedBanner() {
     }
 }
 
-// Setup patterns for trade logging
+// Setup patterns for trade logging (grouped by direction)
 const SETUP_PATTERNS = {
-    papa: [
-        'Double Top',
+    bullish: [
         'Double Bottom',
         'Three White Soldiers',
-        'Three Black Crows',
         'Bulls Counter Attack',
-        'Bears Counter Attack',
-        'Sandwich Pattern',
         'Rounding Bottom',
-        'Rounding Top',
         'Genuine BO',
+        'Gap Up',
+        'Mother Candle (Bullish Reversal)',
+        '3rd Wave Setup (Bullish)',
+        'Ending Diagonal Setup (Bullish)',
+        'Triangle Breakout Setup (Bullish)'
+    ],
+    bearish: [
+        'Double Top',
+        'Three Black Crows',
+        'Bears Counter Attack',
+        'Rounding Top',
         'Genuine BD',
+        'Gap Down',
+        'Mother Candle (Bearish Reversal)',
+        '3rd Wave Setup (Bearish)',
+        'Ending Diagonal Setup (Bearish)',
+        'Triangle Breakout Setup (Bearish)'
+    ],
+    neutral: [
+        'Sandwich Pattern',
         'Fake BO',
         'Fake BD',
-        'Gap Up',
-        'Gap Down',
-        'Mother Candle (Bullish Reversal)',
-        'Mother Candle (Bearish Reversal)',
         'Mother Candle (Continuation)'
-    ],
-    other: [
-        '3rd Wave Setup (Bullish)',
-        '3rd Wave Setup (Bearish)',
-        'Ending Diagonal Setup (Bullish)',
-        'Ending Diagonal Setup (Bearish)',
-        'Triangle Breakout Setup (Bullish)',
-        'Triangle Breakout Setup (Bearish)'
     ]
 };
 
@@ -860,7 +862,7 @@ let wizardState = {
         setup: null,
         target_price: null,
         stop_loss: null,
-        emotion: null,
+        emotions: [],  // Changed to array for multi-select
         notes: null
     }
 };
@@ -892,7 +894,7 @@ async function showLogModal(orderId) {
                 setup: null,
                 target_price: null,
                 stop_loss: null,
-                emotion: null,
+                emotions: [],
                 notes: null
             }
         };
@@ -965,28 +967,52 @@ function renderWizardStep() {
 
     // Step 2: Setup Selection
     if (currentStep === 2) {
-        const papaOptions = SETUP_PATTERNS.papa.map(s => `<option value="${s}">${s}</option>`).join('');
-        const otherOptions = SETUP_PATTERNS.other.map(s => `<option value="${s}">${s}</option>`).join('');
+        const bullishButtons = SETUP_PATTERNS.bullish.map(s =>
+            `<button type="button" class="setup-btn setup-bullish${wizardState.data.setup === s ? ' selected' : ''}"
+                     onclick="selectSetup('${s}')">${s}</button>`
+        ).join('');
+
+        const bearishButtons = SETUP_PATTERNS.bearish.map(s =>
+            `<button type="button" class="setup-btn setup-bearish${wizardState.data.setup === s ? ' selected' : ''}"
+                     onclick="selectSetup('${s}')">${s}</button>`
+        ).join('');
+
+        const neutralButtons = SETUP_PATTERNS.neutral.map(s =>
+            `<button type="button" class="setup-btn setup-neutral${wizardState.data.setup === s ? ' selected' : ''}"
+                     onclick="selectSetup('${s}')">${s}</button>`
+        ).join('');
 
         stepContent = `
-            <div class="wizard-step">
+            <div class="wizard-step wizard-step-scrollable">
                 <h4>📊 What's your setup?</h4>
-                <div class="form-group">
-                    <label>Select Setup Pattern</label>
-                    <select id="setup-select" onchange="handleSetupChange(this)">
-                        <option value="">Choose a pattern...</option>
-                        <optgroup label="PAPA Decision Sheet">
-                            ${papaOptions}
-                        </optgroup>
-                        <optgroup label="Other Setups">
-                            ${otherOptions}
-                        </optgroup>
-                        <option value="__custom__">✏️ Custom (type your own)</option>
-                    </select>
+
+                <div class="setup-group">
+                    <h5 class="setup-group-title bullish-title">📈 Bullish Setups</h5>
+                    <div class="setup-buttons">
+                        ${bullishButtons}
+                    </div>
                 </div>
-                <div class="form-group" id="custom-setup-group" style="display: none;">
-                    <label>Custom Setup Name</label>
-                    <input type="text" id="custom-setup-input" placeholder="Enter your setup name...">
+
+                <div class="setup-group">
+                    <h5 class="setup-group-title bearish-title">📉 Bearish Setups</h5>
+                    <div class="setup-buttons">
+                        ${bearishButtons}
+                    </div>
+                </div>
+
+                <div class="setup-group">
+                    <h5 class="setup-group-title neutral-title">↔️ Neutral/Other Setups</h5>
+                    <div class="setup-buttons">
+                        ${neutralButtons}
+                    </div>
+                </div>
+
+                <div class="setup-group">
+                    <h5 class="setup-group-title">✏️ Custom Setup</h5>
+                    <input type="text" id="custom-setup-input" class="custom-setup-input"
+                           placeholder="Type your own setup name..."
+                           value="${wizardState.data.setup && !SETUP_PATTERNS.bullish.includes(wizardState.data.setup) && !SETUP_PATTERNS.bearish.includes(wizardState.data.setup) && !SETUP_PATTERNS.neutral.includes(wizardState.data.setup) ? wizardState.data.setup : ''}"
+                           oninput="handleCustomSetup(this)">
                 </div>
             </div>
         `;
@@ -998,12 +1024,18 @@ function renderWizardStep() {
         const isBuy = order.action === 'BUY';
 
         // Smart defaults: 2% for target and SL
-        const defaultTarget = isBuy
+        const defaultTarget = wizardState.data.target_price || (isBuy
             ? (entryPrice * 1.02).toFixed(2)
-            : (entryPrice * 0.98).toFixed(2);
-        const defaultSL = isBuy
+            : (entryPrice * 0.98).toFixed(2));
+        const defaultSL = wizardState.data.stop_loss || (isBuy
             ? (entryPrice * 0.98).toFixed(2)
-            : (entryPrice * 1.02).toFixed(2);
+            : (entryPrice * 1.02).toFixed(2));
+
+        // Calculate range for sliders (±10% from entry)
+        const targetMin = (entryPrice * 0.90).toFixed(2);
+        const targetMax = (entryPrice * 1.10).toFixed(2);
+        const slMin = (entryPrice * 0.90).toFixed(2);
+        const slMax = (entryPrice * 1.10).toFixed(2);
 
         stepContent = `
             <div class="wizard-step">
@@ -1011,18 +1043,35 @@ function renderWizardStep() {
                 <div class="entry-price-reminder">
                     Entry: ₹${entryPrice}
                 </div>
+
                 <div class="form-group">
                     <label>Target Price *</label>
-                    <input type="number" step="0.05" id="target-input" value="${defaultTarget}"
-                           oninput="updateRiskReward()" required>
-                    <small class="input-hint">Suggested: ₹${defaultTarget} (2% ${isBuy ? 'above' : 'below'})</small>
+                    <div class="slider-input-group">
+                        <input type="range" id="target-slider" class="price-slider"
+                               min="${targetMin}" max="${targetMax}" step="0.05"
+                               value="${defaultTarget}"
+                               oninput="syncSliderToInput('target', this.value)">
+                        <input type="number" id="target-input" class="price-number-input"
+                               step="0.05" value="${defaultTarget}"
+                               oninput="syncInputToSlider('target', this.value)" required>
+                    </div>
+                    <small class="input-hint">Drag slider or type precise value • Suggested: ₹${isBuy ? (entryPrice * 1.02).toFixed(2) : (entryPrice * 0.98).toFixed(2)} (2% ${isBuy ? 'above' : 'below'})</small>
                 </div>
+
                 <div class="form-group">
                     <label>Stop Loss *</label>
-                    <input type="number" step="0.05" id="sl-input" value="${defaultSL}"
-                           oninput="updateRiskReward()" required>
-                    <small class="input-hint">Suggested: ₹${defaultSL} (2% ${isBuy ? 'below' : 'above'})</small>
+                    <div class="slider-input-group">
+                        <input type="range" id="sl-slider" class="price-slider"
+                               min="${slMin}" max="${slMax}" step="0.05"
+                               value="${defaultSL}"
+                               oninput="syncSliderToInput('sl', this.value)">
+                        <input type="number" id="sl-input" class="price-number-input"
+                               step="0.05" value="${defaultSL}"
+                               oninput="syncInputToSlider('sl', this.value)" required>
+                    </div>
+                    <small class="input-hint">Drag slider or type precise value • Suggested: ₹${isBuy ? (entryPrice * 0.98).toFixed(2) : (entryPrice * 1.02).toFixed(2)} (2% ${isBuy ? 'below' : 'above'})</small>
                 </div>
+
                 <div class="risk-reward-display" id="rr-display">
                     Risk:Reward = 1:1
                 </div>
@@ -1032,46 +1081,38 @@ function renderWizardStep() {
 
     // Step 4: Emotion & Notes
     if (currentStep === 4) {
+        const emotions = [
+            { id: 'disciplined', icon: '📊', label: 'Disciplined' },
+            { id: 'calm', icon: '😌', label: 'Calm' },
+            { id: 'fomo', icon: '😤', label: 'FOMO' },
+            { id: 'greed', icon: '🤑', label: 'Greed' },
+            { id: 'fear', icon: '😨', label: 'Fear' },
+            { id: 'anxiety', icon: '😰', label: 'Anxiety' },
+            { id: 'uncertain', icon: '🤔', label: 'Uncertain' },
+            { id: 'revenge', icon: '😡', label: 'Revenge' }
+        ];
+
+        const emotionButtons = emotions.map(e => {
+            const isSelected = wizardState.data.emotions.includes(e.id);
+            return `
+                <button type="button" class="emotion-btn-multi${isSelected ? ' selected' : ''}"
+                        data-emotion="${e.id}" onclick="toggleEmotion(this)">
+                    <span class="emotion-icon">${e.icon}</span>
+                    <span class="emotion-label">${e.label}</span>
+                </button>
+            `;
+        }).join('');
+
         stepContent = `
             <div class="wizard-step">
                 <h4>😊 How are you feeling?</h4>
+                <p class="emotion-hint">Select all that apply - we're complex humans!</p>
                 <div class="emotion-grid">
-                    <button type="button" class="emotion-btn-new" data-emotion="disciplined" onclick="selectEmotionNew(this)">
-                        <span class="emotion-icon">📊</span>
-                        <span class="emotion-label">Disciplined</span>
-                    </button>
-                    <button type="button" class="emotion-btn-new" data-emotion="calm" onclick="selectEmotionNew(this)">
-                        <span class="emotion-icon">😌</span>
-                        <span class="emotion-label">Calm</span>
-                    </button>
-                    <button type="button" class="emotion-btn-new" data-emotion="fomo" onclick="selectEmotionNew(this)">
-                        <span class="emotion-icon">😤</span>
-                        <span class="emotion-label">FOMO</span>
-                    </button>
-                    <button type="button" class="emotion-btn-new" data-emotion="greed" onclick="selectEmotionNew(this)">
-                        <span class="emotion-icon">🤑</span>
-                        <span class="emotion-label">Greed</span>
-                    </button>
-                    <button type="button" class="emotion-btn-new" data-emotion="fear" onclick="selectEmotionNew(this)">
-                        <span class="emotion-icon">😨</span>
-                        <span class="emotion-label">Fear</span>
-                    </button>
-                    <button type="button" class="emotion-btn-new" data-emotion="anxiety" onclick="selectEmotionNew(this)">
-                        <span class="emotion-icon">😰</span>
-                        <span class="emotion-label">Anxiety</span>
-                    </button>
-                    <button type="button" class="emotion-btn-new" data-emotion="uncertain" onclick="selectEmotionNew(this)">
-                        <span class="emotion-icon">🤔</span>
-                        <span class="emotion-label">Uncertain</span>
-                    </button>
-                    <button type="button" class="emotion-btn-new" data-emotion="revenge" onclick="selectEmotionNew(this)">
-                        <span class="emotion-icon">😡</span>
-                        <span class="emotion-label">Revenge</span>
-                    </button>
+                    ${emotionButtons}
                 </div>
                 <div class="form-group">
                     <label>💭 Trade Notes (optional)</label>
-                    <textarea id="notes-input" rows="4" placeholder="Why did you take this trade? Any observations?"></textarea>
+                    <textarea id="notes-input" rows="4" placeholder="Why did you take this trade? Any observations?">${wizardState.data.notes || ''}</textarea>
                 </div>
             </div>
         `;
@@ -1104,15 +1145,51 @@ function renderWizardStep() {
     }
 }
 
-// Handle setup dropdown change
-function handleSetupChange(select) {
-    const customGroup = document.getElementById('custom-setup-group');
-    if (select.value === '__custom__') {
-        customGroup.style.display = 'block';
-        wizardState.data.setup = null;
-    } else {
-        customGroup.style.display = 'none';
-        wizardState.data.setup = select.value;
+// Select setup pattern
+function selectSetup(setupName) {
+    // Deselect all setup buttons
+    document.querySelectorAll('.setup-btn').forEach(btn => btn.classList.remove('selected'));
+
+    // Select this button
+    const button = event.target.closest('.setup-btn');
+    if (button) {
+        button.classList.add('selected');
+    }
+
+    // Clear custom input
+    const customInput = document.getElementById('custom-setup-input');
+    if (customInput) {
+        customInput.value = '';
+    }
+
+    wizardState.data.setup = setupName;
+}
+
+// Handle custom setup input
+function handleCustomSetup(input) {
+    const value = input.value.trim();
+
+    // Deselect all preset buttons
+    document.querySelectorAll('.setup-btn').forEach(btn => btn.classList.remove('selected'));
+
+    wizardState.data.setup = value || null;
+}
+
+// Sync slider value to number input
+function syncSliderToInput(field, value) {
+    const input = document.getElementById(`${field}-input`);
+    if (input) {
+        input.value = value;
+        updateRiskReward();
+    }
+}
+
+// Sync number input to slider
+function syncInputToSlider(field, value) {
+    const slider = document.getElementById(`${field}-slider`);
+    if (slider) {
+        slider.value = value;
+        updateRiskReward();
     }
 }
 
@@ -1147,11 +1224,20 @@ function updateRiskReward() {
     rrDisplay.innerHTML = `<span style="color: ${color};">Risk:Reward = 1:${ratio}</span>`;
 }
 
-// Select emotion (new wizard version)
-function selectEmotionNew(button) {
-    document.querySelectorAll('.emotion-btn-new').forEach(btn => btn.classList.remove('selected'));
-    button.classList.add('selected');
-    wizardState.data.emotion = button.dataset.emotion;
+// Toggle emotion (multi-select)
+function toggleEmotion(button) {
+    const emotion = button.dataset.emotion;
+    const isSelected = button.classList.contains('selected');
+
+    if (isSelected) {
+        // Deselect
+        button.classList.remove('selected');
+        wizardState.data.emotions = wizardState.data.emotions.filter(e => e !== emotion);
+    } else {
+        // Select
+        button.classList.add('selected');
+        wizardState.data.emotions.push(emotion);
+    }
 }
 
 // Wizard navigation: Next
@@ -1160,20 +1246,9 @@ function wizardNext() {
 
     // Validate current step before proceeding
     if (currentStep === 2) {
-        const setupSelect = document.getElementById('setup-select');
-        const customInput = document.getElementById('custom-setup-input');
-
-        if (setupSelect.value === '__custom__') {
-            if (!customInput.value.trim()) {
-                showToast('Please enter a custom setup name', 'error');
-                return;
-            }
-            wizardState.data.setup = customInput.value.trim();
-        } else if (!setupSelect.value) {
-            showToast('Please select a setup pattern', 'error');
+        if (!wizardState.data.setup) {
+            showToast('Please select a setup or enter a custom one', 'error');
             return;
-        } else {
-            wizardState.data.setup = setupSelect.value;
         }
     }
 
@@ -1230,7 +1305,7 @@ async function wizardSubmit() {
         order_id: wizardState.orderId,
         target_price: wizardState.data.target_price,
         stop_loss: wizardState.data.stop_loss,
-        emotion: wizardState.data.emotion,
+        emotion: wizardState.data.emotions.join(', ') || null,  // Join multiple emotions
         strategy: wizardState.data.setup,  // Using setup as strategy
         notes: wizardState.data.notes
     };
