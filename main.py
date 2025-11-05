@@ -224,6 +224,12 @@ async def admin_panel(request: Request):
     return templates.TemplateResponse("admin.html", {"request": request})
 
 
+@app.get("/test", response_class=HTMLResponse)
+async def test_page(request: Request):
+    """Serve the test order emulation page."""
+    return templates.TemplateResponse("test.html", {"request": request})
+
+
 @app.get("/setup", response_class=HTMLResponse)
 async def setup_page(request: Request):
     """Serve the OAuth setup page."""
@@ -936,6 +942,77 @@ async def get_monitored_positions():
             "count": len(positions)
         }
     except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@app.post("/api/test/create-order")
+async def create_test_order(request: Request):
+    """Create a test/fake order for testing the logging flow."""
+    if not kite_client:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Kite client not initialized"}
+        )
+
+    try:
+        import random
+        import string
+
+        data = await request.json()
+
+        # Generate fake order ID (TEST prefix to identify test orders)
+        order_id = f"TEST{datetime.now().strftime('%Y%m%d%H%M%S')}{''.join(random.choices(string.digits, k=4))}"
+
+        # Create order data
+        order_data = {
+            "order_id": order_id,
+            "trade_id": f"T{order_id}",
+            "symbol": data.get("symbol"),
+            "exchange": data.get("exchange"),
+            "action": data.get("action"),
+            "quantity": int(data.get("quantity")),
+            "entry_price": float(data.get("entry_price")),
+            "order_type": "MARKET",
+            "product": data.get("product"),
+            "status": "COMPLETE",
+            "timestamp": datetime.now().isoformat()
+        }
+
+        # Save to database
+        success = kite_client.db.save_order(order_data)
+
+        if success:
+            # Add to notification queue
+            global new_order_notifications
+            notification = {
+                "order_id": order_id,
+                "symbol": order_data["symbol"],
+                "action": order_data["action"],
+                "quantity": order_data["quantity"],
+                "price": order_data["entry_price"],
+                "timestamp": datetime.now().isoformat()
+            }
+            new_order_notifications.append(notification)
+
+            print(f"✅ Test order created: {order_id}")
+
+            return {
+                "success": True,
+                "order_id": order_id,
+                "message": "Test order created successfully",
+                "order": order_data
+            }
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "error": "Failed to save test order"}
+            )
+
+    except Exception as e:
+        print(f"❌ Error creating test order: {e}")
         return JSONResponse(
             status_code=500,
             content={"success": False, "error": str(e)}
