@@ -710,6 +710,345 @@ async function refreshDashboard() {
     }
 }
 
+// Trading Log Functions
+
+// Request browser notification permission
+async function requestNotificationPermission() {
+    if ('Notification' in window && Notification.permission === 'default') {
+        const permission = await Notification.requestPermission();
+        return permission === 'granted';
+    }
+    return Notification.permission === 'granted';
+}
+
+// Show browser notification
+function showBrowserNotification(title, body, data = {}) {
+    if ('Notification' in window && Notification.permission === 'granted') {
+        const notification = new Notification(title, {
+            body: body,
+            icon: '/static/icon.png',
+            tag: data.order_id || 'trade-notification',
+            requireInteraction: true,
+            data: data
+        });
+
+        notification.onclick = function() {
+            window.focus();
+            if (data.order_id) {
+                showLogModal(data.order_id);
+            }
+            notification.close();
+        };
+    }
+}
+
+// Poll for new order notifications
+let notificationPollInterval = null;
+async function pollNotifications() {
+    try {
+        const response = await fetch('/api/notifications');
+        const result = await response.json();
+
+        if (result.success && result.notifications.length > 0) {
+            // Show browser notifications
+            result.notifications.forEach(notif => {
+                showBrowserNotification(
+                    `${notif.symbol} ${notif.action} executed`,
+                    `₹${notif.price} × ${notif.quantity} shares`,
+                    notif
+                );
+            });
+
+            // Update unlogged orders banner
+            loadUnloggedOrdersBanner();
+        }
+    } catch (error) {
+        console.error('Failed to poll notifications:', error);
+    }
+}
+
+// Start notification polling
+function startNotificationPolling() {
+    // Poll every 10 seconds
+    notificationPollInterval = setInterval(pollNotifications, 10000);
+}
+
+// Load and show unlogged orders banner
+async function loadUnloggedOrdersBanner() {
+    try {
+        const response = await fetch('/api/unlogged-orders');
+        const result = await response.json();
+
+        if (result.success && result.count > 0) {
+            showUnloggedBanner(result.data);
+        } else {
+            hideUnloggedBanner();
+        }
+    } catch (error) {
+        console.error('Failed to load unlogged orders:', error);
+    }
+}
+
+// Show unlogged orders banner
+function showUnloggedBanner(orders) {
+    let banner = document.getElementById('unlogged-banner');
+
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'unlogged-banner';
+        banner.className = 'unlogged-banner';
+        const container = document.querySelector('.container');
+        container.insertBefore(banner, container.firstChild);
+    }
+
+    banner.innerHTML = `
+        <div class="unlogged-content">
+            <span class="unlogged-icon">📝</span>
+            <span class="unlogged-text">You have ${orders.length} trade(s) waiting to be logged!</span>
+            <button class="btn btn-primary" onclick="showLogModal('${orders[0].order_id}')">Log Now</button>
+        </div>
+    `;
+    banner.style.display = 'flex';
+}
+
+// Hide unlogged orders banner
+function hideUnloggedBanner() {
+    const banner = document.getElementById('unlogged-banner');
+    if (banner) {
+        banner.style.display = 'none';
+    }
+}
+
+// Show log entry modal
+async function showLogModal(orderId) {
+    try {
+        // Fetch order details
+        const response = await fetch('/api/unlogged-orders');
+        const result = await response.json();
+
+        if (!result.success) {
+            showToast('Failed to load order details', 'error');
+            return;
+        }
+
+        const order = result.data.find(o => o.order_id === orderId);
+        if (!order) {
+            showToast('Order not found', 'error');
+            return;
+        }
+
+        // Create modal
+        const modal = document.createElement('div');
+        modal.id = 'log-modal';
+        modal.className = 'modal';
+
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>📝 Log Your Trade</h3>
+                    <button class="modal-close" onclick="closeLogModal()">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="order-summary">
+                        <strong>${order.action} ${order.symbol}</strong> @ ₹${order.entry_price} (Qty: ${order.quantity})
+                        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                            ${new Date(order.timestamp).toLocaleString()}
+                        </div>
+                    </div>
+
+                    <form id="log-form" onsubmit="submitTradeLog(event, '${orderId}')">
+                        <div class="form-group">
+                            <label>🎯 Target Price *</label>
+                            <input type="number" step="0.01" name="target_price" required placeholder="Enter target price">
+                        </div>
+
+                        <div class="form-group">
+                            <label>🛑 Stop Loss *</label>
+                            <input type="number" step="0.01" name="stop_loss" required placeholder="Enter stop loss">
+                        </div>
+
+                        <div class="form-group">
+                            <label>😊 How are you feeling?</label>
+                            <div class="emotion-buttons">
+                                <button type="button" class="emotion-btn" data-emotion="fomo" onclick="selectEmotion(this)">😤 FOMO</button>
+                                <button type="button" class="emotion-btn" data-emotion="fear" onclick="selectEmotion(this)">😨 Fear</button>
+                                <button type="button" class="emotion-btn" data-emotion="greed" onclick="selectEmotion(this)">🤑 Greed</button>
+                                <button type="button" class="emotion-btn" data-emotion="calm" onclick="selectEmotion(this)">😌 Calm</button>
+                                <button type="button" class="emotion-btn" data-emotion="anxiety" onclick="selectEmotion(this)">😰 Anxiety</button>
+                                <button type="button" class="emotion-btn" data-emotion="uncertain" onclick="selectEmotion(this)">🤔 Uncertain</button>
+                                <button type="button" class="emotion-btn" data-emotion="revenge" onclick="selectEmotion(this)">😡 Revenge</button>
+                                <button type="button" class="emotion-btn" data-emotion="disciplined" onclick="selectEmotion(this)">📊 Disciplined</button>
+                            </div>
+                            <input type="hidden" name="emotion" id="emotion-input">
+                        </div>
+
+                        <div class="form-group">
+                            <label>📋 Strategy (optional)</label>
+                            <select name="strategy">
+                                <option value="">Select strategy...</option>
+                                <option value="momentum">Momentum</option>
+                                <option value="breakout">Breakout</option>
+                                <option value="reversal">Reversal</option>
+                                <option value="scalp">Scalp</option>
+                                <option value="swing">Swing</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>💭 Trade Notes (optional)</label>
+                            <textarea name="notes" rows="3" placeholder="Why did you take this trade?"></textarea>
+                        </div>
+
+                        <div class="modal-actions">
+                            <button type="button" class="btn btn-secondary" onclick="closeLogModal()">Skip for Now</button>
+                            <button type="submit" class="btn btn-primary">Save Log</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        // Show modal with animation
+        setTimeout(() => modal.classList.add('show'), 10);
+
+        // Clear notification for this order
+        await fetch('/api/notifications/clear', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({order_id: orderId})
+        });
+
+    } catch (error) {
+        console.error('Failed to show log modal:', error);
+        showToast('Failed to show log modal', 'error');
+    }
+}
+
+// Close log modal
+function closeLogModal() {
+    const modal = document.getElementById('log-modal');
+    if (modal) {
+        modal.classList.remove('show');
+        setTimeout(() => modal.remove(), 300);
+    }
+}
+
+// Select emotion button
+function selectEmotion(button) {
+    // Remove selection from all buttons
+    document.querySelectorAll('.emotion-btn').forEach(btn => btn.classList.remove('selected'));
+
+    // Select this button
+    button.classList.add('selected');
+
+    // Update hidden input
+    document.getElementById('emotion-input').value = button.dataset.emotion;
+}
+
+// Submit trade log
+async function submitTradeLog(event, orderId) {
+    event.preventDefault();
+
+    const form = event.target;
+    const formData = new FormData(form);
+
+    const logData = {
+        order_id: orderId,
+        target_price: parseFloat(formData.get('target_price')),
+        stop_loss: parseFloat(formData.get('stop_loss')),
+        emotion: formData.get('emotion') || null,
+        strategy: formData.get('strategy') || null,
+        notes: formData.get('notes') || null
+    };
+
+    try {
+        const response = await fetch('/api/trade-log', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(logData)
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast('Trade logged successfully!', 'success');
+            closeLogModal();
+            loadUnloggedOrdersBanner();
+            loadMonitoredPositions();
+        } else {
+            showToast(result.error || 'Failed to save log', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to submit trade log:', error);
+        showToast('Failed to submit trade log', 'error');
+    }
+}
+
+// Load and display monitored positions
+async function loadMonitoredPositions() {
+    try {
+        const response = await fetch('/api/monitored-positions');
+        const result = await response.json();
+
+        if (result.success && result.count > 0) {
+            showMonitoredPositionsWidget(result.data);
+        }
+    } catch (error) {
+        console.error('Failed to load monitored positions:', error);
+    }
+}
+
+// Show monitored positions widget
+function showMonitoredPositionsWidget(positions) {
+    let widget = document.getElementById('monitored-positions-widget');
+
+    if (!widget) {
+        widget = document.createElement('div');
+        widget.id = 'monitored-positions-widget';
+        widget.className = 'monitored-widget';
+
+        const container = document.querySelector('.container');
+        const chartsSection = document.querySelector('.charts-section');
+        if (chartsSection) {
+            container.insertBefore(widget, chartsSection);
+        } else {
+            container.appendChild(widget);
+        }
+    }
+
+    let html = `
+        <h3>🔄 Monitored Positions (${positions.length})</h3>
+        <div class="monitored-grid">
+    `;
+
+    positions.forEach(pos => {
+        const pnl = pos.unrealized_pnl || 0;
+        const pnlClass = getPnLClass(pnl);
+
+        html += `
+            <div class="monitored-card">
+                <div class="monitored-header">
+                    <strong>${pos.symbol}</strong>
+                    <span class="${pnlClass}">${formatCurrency(pnl)}</span>
+                </div>
+                <div class="monitored-details">
+                    <div>Entry: ₹${pos.entry_price}</div>
+                    <div>Current: ₹${pos.current_price || pos.entry_price}</div>
+                    <div>Target: ₹${pos.target_price}</div>
+                    <div>SL: ₹${pos.stop_loss}</div>
+                </div>
+            </div>
+        `;
+    });
+
+    html += `</div>`;
+    widget.innerHTML = html;
+    widget.style.display = 'block';
+}
+
 // Initialize dashboard on page load
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('🚀 Initializing Kite Connect Analytics Dashboard...');
@@ -718,11 +1057,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     const refreshBtn = document.getElementById('refresh-btn');
     refreshBtn.addEventListener('click', refreshDashboard);
 
+    // Request notification permission
+    await requestNotificationPermission();
+
     // Start update checking
     startUpdateCheck();
 
+    // Start notification polling
+    startNotificationPolling();
+
     // Initial load
     await refreshDashboard();
+
+    // Load trading log widgets
+    loadUnloggedOrdersBanner();
+    loadMonitoredPositions();
 
     console.log('✅ Dashboard initialized');
 });

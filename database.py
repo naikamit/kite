@@ -144,6 +144,104 @@ class TradingDatabase:
                 ON cash_flow(flow_date)
             """)
 
+            # Orders table - tracks all orders from Kite API
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS orders (
+                    order_id TEXT PRIMARY KEY,
+                    trade_id TEXT,
+                    symbol TEXT NOT NULL,
+                    exchange TEXT,
+                    action TEXT NOT NULL,
+                    quantity INTEGER NOT NULL,
+                    entry_price REAL NOT NULL,
+                    order_type TEXT,
+                    product TEXT,
+                    status TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    logged INTEGER DEFAULT 0,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Index on logged status for quick unlogged order queries
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_orders_logged
+                ON orders(logged, timestamp DESC)
+            """)
+
+            # Index on status
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_orders_status
+                ON orders(status)
+            """)
+
+            # Trade logs table - stores user logging data
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS trade_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id TEXT NOT NULL,
+                    target_price REAL NOT NULL,
+                    stop_loss REAL NOT NULL,
+                    risk_amount REAL,
+                    reward_amount REAL,
+                    risk_reward_ratio REAL,
+                    emotion TEXT,
+                    strategy TEXT,
+                    notes TEXT,
+                    logged_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    exit_price REAL,
+                    exit_reason TEXT,
+                    exit_notes TEXT,
+                    actual_pnl REAL,
+                    position_status TEXT DEFAULT 'OPEN',
+                    FOREIGN KEY (order_id) REFERENCES orders(order_id)
+                )
+            """)
+
+            # Index on order_id for lookups
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_trade_logs_order
+                ON trade_logs(order_id)
+            """)
+
+            # Index on position_status for open position queries
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_trade_logs_status
+                ON trade_logs(position_status)
+            """)
+
+            # Position monitoring table - tracks open positions for alerts
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS position_monitoring (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    quantity INTEGER NOT NULL,
+                    entry_price REAL NOT NULL,
+                    current_price REAL,
+                    target_price REAL NOT NULL,
+                    stop_loss REAL NOT NULL,
+                    unrealized_pnl REAL DEFAULT 0,
+                    last_updated TEXT,
+                    alerts_sent TEXT DEFAULT '{}',
+                    is_active INTEGER DEFAULT 1,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (order_id) REFERENCES orders(order_id)
+                )
+            """)
+
+            # Index on is_active for monitoring queries
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_monitoring_active
+                ON position_monitoring(is_active)
+            """)
+
+            # Index on symbol for price updates
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_monitoring_symbol
+                ON position_monitoring(symbol)
+            """)
+
     def save_trades(self, trades: List[Dict]) -> int:
         """
         Save trades to database (insert or ignore duplicates).
@@ -461,3 +559,246 @@ class TradingDatabase:
             cursor.execute("SELECT COUNT(*) as count FROM trades")
             row = cursor.fetchone()
             return row["count"] if row else 0
+
+    # Trading Log Methods
+
+    def save_order(self, order: Dict) -> bool:
+        """Save or update an order from Kite API."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO orders
+                    (order_id, trade_id, symbol, exchange, action, quantity,
+                     entry_price, order_type, product, status, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    order.get("order_id"),
+                    order.get("trade_id"),
+                    order.get("symbol"),
+                    order.get("exchange"),
+                    order.get("action"),
+                    order.get("quantity"),
+                    order.get("entry_price"),
+                    order.get("order_type"),
+                    order.get("product"),
+                    order.get("status"),
+                    order.get("timestamp")
+                ))
+                return True
+            except Exception as e:
+                print(f"Error saving order {order.get('order_id')}: {e}")
+                return False
+
+    def get_unlogged_orders(self, limit: int = 50) -> List[Dict]:
+        """Get orders that haven't been logged yet."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM orders
+                WHERE logged = 0 AND status = 'COMPLETE'
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """, (limit,))
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    def get_order_by_id(self, order_id: str) -> Optional[Dict]:
+        """Get a single order by ID."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM orders WHERE order_id = ?", (order_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def save_trade_log(self, log_data: Dict) -> int:
+        """Save trade log entry and mark order as logged."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                # Insert trade log
+                cursor.execute("""
+                    INSERT INTO trade_logs
+                    (order_id, target_price, stop_loss, risk_amount, reward_amount,
+                     risk_reward_ratio, emotion, strategy, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    log_data.get("order_id"),
+                    log_data.get("target_price"),
+                    log_data.get("stop_loss"),
+                    log_data.get("risk_amount"),
+                    log_data.get("reward_amount"),
+                    log_data.get("risk_reward_ratio"),
+                    log_data.get("emotion"),
+                    log_data.get("strategy"),
+                    log_data.get("notes")
+                ))
+
+                log_id = cursor.lastrowid
+
+                # Mark order as logged
+                cursor.execute("""
+                    UPDATE orders SET logged = 1 WHERE order_id = ?
+                """, (log_data.get("order_id"),))
+
+                return log_id
+            except Exception as e:
+                print(f"Error saving trade log: {e}")
+                return 0
+
+    def get_trade_log(self, order_id: str) -> Optional[Dict]:
+        """Get trade log for a specific order."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM trade_logs WHERE order_id = ?
+            """, (order_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_open_trade_logs(self) -> List[Dict]:
+        """Get all open trade logs with order details."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT
+                    tl.*,
+                    o.symbol, o.exchange, o.action, o.quantity,
+                    o.entry_price, o.product, o.timestamp as order_timestamp
+                FROM trade_logs tl
+                JOIN orders o ON tl.order_id = o.order_id
+                WHERE tl.position_status = 'OPEN'
+                ORDER BY tl.logged_at DESC
+            """)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    def get_all_trade_logs(self, limit: int = 100) -> List[Dict]:
+        """Get all trade logs with order details."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT
+                    tl.*,
+                    o.symbol, o.exchange, o.action, o.quantity,
+                    o.entry_price, o.product, o.timestamp as order_timestamp
+                FROM trade_logs tl
+                JOIN orders o ON tl.order_id = o.order_id
+                ORDER BY tl.logged_at DESC
+                LIMIT ?
+            """, (limit,))
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    def update_trade_log_exit(self, order_id: str, exit_data: Dict) -> bool:
+        """Update trade log with exit information."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    UPDATE trade_logs
+                    SET exit_price = ?,
+                        exit_reason = ?,
+                        exit_notes = ?,
+                        actual_pnl = ?,
+                        position_status = 'CLOSED'
+                    WHERE order_id = ?
+                """, (
+                    exit_data.get("exit_price"),
+                    exit_data.get("exit_reason"),
+                    exit_data.get("exit_notes"),
+                    exit_data.get("actual_pnl"),
+                    order_id
+                ))
+                return cursor.rowcount > 0
+            except Exception as e:
+                print(f"Error updating trade log exit: {e}")
+                return False
+
+    # Position Monitoring Methods
+
+    def save_monitored_position(self, position: Dict) -> int:
+        """Add a position to monitoring."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    INSERT INTO position_monitoring
+                    (order_id, symbol, quantity, entry_price, current_price,
+                     target_price, stop_loss, unrealized_pnl, last_updated)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    position.get("order_id"),
+                    position.get("symbol"),
+                    position.get("quantity"),
+                    position.get("entry_price"),
+                    position.get("current_price", position.get("entry_price")),
+                    position.get("target_price"),
+                    position.get("stop_loss"),
+                    position.get("unrealized_pnl", 0),
+                    datetime.now().isoformat()
+                ))
+                return cursor.lastrowid
+            except Exception as e:
+                print(f"Error saving monitored position: {e}")
+                return 0
+
+    def get_active_monitored_positions(self) -> List[Dict]:
+        """Get all active monitored positions."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM position_monitoring
+                WHERE is_active = 1
+                ORDER BY created_at DESC
+            """)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    def update_monitored_position_price(self, position_id: int, current_price: float,
+                                       unrealized_pnl: float) -> bool:
+        """Update current price and P&L for a monitored position."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    UPDATE position_monitoring
+                    SET current_price = ?,
+                        unrealized_pnl = ?,
+                        last_updated = ?
+                    WHERE id = ?
+                """, (current_price, unrealized_pnl, datetime.now().isoformat(), position_id))
+                return cursor.rowcount > 0
+            except Exception as e:
+                print(f"Error updating monitored position price: {e}")
+                return False
+
+    def update_monitoring_alerts(self, position_id: int, alerts_sent: str) -> bool:
+        """Update alerts_sent JSON for a monitored position."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    UPDATE position_monitoring
+                    SET alerts_sent = ?
+                    WHERE id = ?
+                """, (alerts_sent, position_id))
+                return cursor.rowcount > 0
+            except Exception as e:
+                print(f"Error updating monitoring alerts: {e}")
+                return False
+
+    def deactivate_monitored_position(self, order_id: str) -> bool:
+        """Deactivate monitoring for a position (when closed)."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    UPDATE position_monitoring
+                    SET is_active = 0
+                    WHERE order_id = ?
+                """, (order_id,))
+                return cursor.rowcount > 0
+            except Exception as e:
+                print(f"Error deactivating monitored position: {e}")
+                return False

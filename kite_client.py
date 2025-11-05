@@ -472,3 +472,99 @@ class KiteClient:
                 "connected": False,
                 "error": str(e)
             }
+
+    def sync_orders_to_db(self) -> Dict:
+        """
+        Sync orders from Kite API to database.
+        Detects new completed orders for logging.
+
+        Returns:
+            Dict with sync statistics
+        """
+        try:
+            # Fetch all orders from Kite API
+            api_orders = self.kite.orders()
+
+            new_orders = 0
+            completed_orders = 0
+
+            for order in api_orders:
+                # Only save completed orders for logging
+                if order.get("status") in ["COMPLETE", "CANCELLED", "REJECTED"]:
+                    order_data = {
+                        "order_id": order.get("order_id"),
+                        "trade_id": order.get("trade_id"),
+                        "symbol": order.get("tradingsymbol"),
+                        "exchange": order.get("exchange"),
+                        "action": order.get("transaction_type"),  # BUY/SELL
+                        "quantity": order.get("quantity", 0),
+                        "entry_price": order.get("average_price", 0),
+                        "order_type": order.get("order_type"),
+                        "product": order.get("product"),
+                        "status": order.get("status"),
+                        "timestamp": str(order.get("order_timestamp", datetime.now().isoformat()))
+                    }
+
+                    # Check if this is a new order
+                    existing = self.db.get_order_by_id(order_data["order_id"])
+                    if not existing:
+                        new_orders += 1
+                        if order.get("status") == "COMPLETE":
+                            completed_orders += 1
+
+                    # Save to database (will update if exists)
+                    self.db.save_order(order_data)
+
+            return {
+                "success": True,
+                "new_orders": new_orders,
+                "completed_orders": completed_orders,
+                "synced_at": datetime.now().isoformat()
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def get_order_book(self) -> Dict:
+        """
+        Get all orders from Kite API.
+
+        Returns:
+            Dict containing order book
+        """
+        try:
+            orders = self.kite.orders()
+            return {
+                "success": True,
+                "data": orders
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def get_ltp(self, symbols: List[str]) -> Dict:
+        """
+        Get last traded price for given symbols.
+
+        Args:
+            symbols: List of symbols in format "EXCHANGE:SYMBOL" (e.g., ["NSE:SBIN", "NSE:INFY"])
+
+        Returns:
+            Dict with symbol prices
+        """
+        try:
+            ltp_data = self.kite.ltp(symbols)
+            return {
+                "success": True,
+                "data": ltp_data
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }

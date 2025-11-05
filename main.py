@@ -1,13 +1,16 @@
 """FastAPI application for Kite Connect Analytics Dashboard."""
 
 import os
-from datetime import datetime
+import json
+from datetime import datetime, time as dt_time
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from kiteconnect import KiteConnect
 from kite_client import KiteClient
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 import uvicorn
 
 # Initialize FastAPI app
@@ -34,6 +37,152 @@ except Exception as e:
     print(f"   Error type: {type(e).__name__}")
     print(f"   Error details: {str(e)}")
     kite_client = None
+
+# Initialize background scheduler
+scheduler = BackgroundScheduler()
+
+# Store for new order notifications (simple in-memory for MVP)
+new_order_notifications = []
+
+
+def is_market_hours() -> bool:
+    """Check if current time is during market hours (9:15 AM - 3:30 PM IST)."""
+    now = datetime.now().time()
+    market_open = dt_time(9, 15)
+    market_close = dt_time(15, 30)
+    return market_open <= now <= market_close
+
+
+def sync_orders_job():
+    """Background job to sync orders from Kite API."""
+    if not kite_client:
+        return
+
+    try:
+        print("📥 Syncing orders from Kite API...")
+        result = kite_client.sync_orders_to_db()
+
+        if result.get("success"):
+            new_completed = result.get("completed_orders", 0)
+            if new_completed > 0:
+                print(f"✨ {new_completed} new completed order(s) detected!")
+
+                # Get unlogged orders for notifications
+                unlogged = kite_client.db.get_unlogged_orders(limit=10)
+                for order in unlogged:
+                    # Add to notification queue
+                    notification = {
+                        "order_id": order["order_id"],
+                        "symbol": order["symbol"],
+                        "action": order["action"],
+                        "quantity": order["quantity"],
+                        "price": order["entry_price"],
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    # Only add if not already in queue
+                    if not any(n["order_id"] == order["order_id"] for n in new_order_notifications):
+                        new_order_notifications.append(notification)
+
+            print(f"   Total new orders: {result.get('new_orders', 0)}")
+        else:
+            print(f"⚠️ Order sync failed: {result.get('error')}")
+
+    except Exception as e:
+        print(f"❌ Order sync job error: {e}")
+
+
+def monitor_positions_job():
+    """Background job to monitor open positions and send alerts."""
+    if not kite_client or not is_market_hours():
+        return
+
+    try:
+        print("👁️ Monitoring open positions...")
+        monitored = kite_client.db.get_active_monitored_positions()
+
+        if not monitored:
+            return
+
+        # Get current prices for all monitored symbols
+        symbols = [f"{p['exchange']}:{p['symbol']}" for p in monitored]
+        ltp_result = kite_client.get_ltp(symbols)
+
+        if not ltp_result.get("success"):
+            print(f"⚠️ Failed to fetch LTP: {ltp_result.get('error')}")
+            return
+
+        ltp_data = ltp_result.get("data", {})
+
+        for position in monitored:
+            symbol_key = f"{position['exchange']}:{position['symbol']}"
+            if symbol_key not in ltp_data:
+                continue
+
+            current_price = ltp_data[symbol_key]["last_price"]
+            entry_price = position["entry_price"]
+            quantity = position["quantity"]
+            target = position["target_price"]
+            stop_loss = position["stop_loss"]
+
+            # Calculate unrealized P&L
+            unrealized_pnl = (current_price - entry_price) * quantity
+
+            # Update position price
+            kite_client.db.update_monitored_position_price(
+                position["id"], current_price, unrealized_pnl
+            )
+
+            # Check alert conditions
+            alerts_sent = json.loads(position.get("alerts_sent", "{}"))
+
+            # Target proximity alert (95% of target)
+            if not alerts_sent.get("target_alert"):
+                if (entry_price < target and current_price >= target * 0.95) or \
+                   (entry_price > target and current_price <= target * 1.05):
+                    print(f"🎯 Target alert: {position['symbol']} @ ₹{current_price} (Target: ₹{target})")
+                    alerts_sent["target_alert"] = True
+                    kite_client.db.update_monitoring_alerts(position["id"], json.dumps(alerts_sent))
+
+            # Stop loss proximity alert (within 2%)
+            if not alerts_sent.get("sl_alert"):
+                if (entry_price > stop_loss and current_price <= stop_loss * 1.02) or \
+                   (entry_price < stop_loss and current_price >= stop_loss * 0.98):
+                    print(f"🛑 Stop loss alert: {position['symbol']} @ ₹{current_price} (SL: ₹{stop_loss})")
+                    alerts_sent["sl_alert"] = True
+                    kite_client.db.update_monitoring_alerts(position["id"], json.dumps(alerts_sent))
+
+        print(f"   Monitored {len(monitored)} position(s)")
+
+    except Exception as e:
+        print(f"❌ Position monitoring job error: {e}")
+
+
+# Start background jobs
+if kite_client:
+    # Sync orders every 30 seconds
+    scheduler.add_job(
+        func=sync_orders_job,
+        trigger=IntervalTrigger(seconds=30),
+        id="sync_orders",
+        name="Sync orders from Kite API",
+        replace_existing=True
+    )
+
+    # Monitor positions every 1 minute (only during market hours)
+    scheduler.add_job(
+        func=monitor_positions_job,
+        trigger=IntervalTrigger(minutes=1),
+        id="monitor_positions",
+        name="Monitor open positions",
+        replace_existing=True
+    )
+
+    scheduler.start()
+    print("✅ Background jobs started")
+    print("   - Order sync: every 30 seconds")
+    print("   - Position monitoring: every 1 minute (market hours only)")
+else:
+    print("⚠️ Background jobs not started (Kite client unavailable)")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -519,6 +668,219 @@ async def get_raw_positions(days: int = 30, symbol: str = None):
                 "days": days,
                 "symbol": symbol
             }
+        }
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+# Trading Log API Endpoints
+
+@app.get("/api/notifications")
+async def get_notifications():
+    """Get pending order notifications for the user."""
+    return {
+        "success": True,
+        "notifications": new_order_notifications,
+        "count": len(new_order_notifications)
+    }
+
+
+@app.post("/api/notifications/clear")
+async def clear_notification(request: Request):
+    """Clear a notification by order_id."""
+    try:
+        data = await request.json()
+        order_id = data.get("order_id")
+
+        global new_order_notifications
+        new_order_notifications = [n for n in new_order_notifications if n["order_id"] != order_id]
+
+        return {"success": True}
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@app.get("/api/unlogged-orders")
+async def get_unlogged_orders():
+    """Get orders that haven't been logged yet."""
+    if not kite_client:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Kite client not initialized"}
+        )
+
+    try:
+        orders = kite_client.db.get_unlogged_orders(limit=50)
+        return {
+            "success": True,
+            "data": orders,
+            "count": len(orders)
+        }
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@app.post("/api/trade-log")
+async def save_trade_log(request: Request):
+    """Save trade log entry for an order."""
+    if not kite_client:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Kite client not initialized"}
+        )
+
+    try:
+        data = await request.json()
+        order_id = data.get("order_id")
+        target_price = float(data.get("target_price"))
+        stop_loss = float(data.get("stop_loss"))
+
+        # Validate required fields
+        if not order_id or not target_price or not stop_loss:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": "order_id, target_price, and stop_loss are required"}
+            )
+
+        # Get order details
+        order = kite_client.db.get_order_by_id(order_id)
+        if not order:
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "error": "Order not found"}
+            )
+
+        # Calculate risk/reward
+        entry_price = order["entry_price"]
+        quantity = order["quantity"]
+        action = order["action"]
+
+        if action == "BUY":
+            risk_amount = abs(entry_price - stop_loss) * quantity
+            reward_amount = abs(target_price - entry_price) * quantity
+        else:  # SELL
+            risk_amount = abs(stop_loss - entry_price) * quantity
+            reward_amount = abs(entry_price - target_price) * quantity
+
+        risk_reward_ratio = reward_amount / risk_amount if risk_amount > 0 else 0
+
+        # Save trade log
+        log_data = {
+            "order_id": order_id,
+            "target_price": target_price,
+            "stop_loss": stop_loss,
+            "risk_amount": risk_amount,
+            "reward_amount": reward_amount,
+            "risk_reward_ratio": risk_reward_ratio,
+            "emotion": data.get("emotion"),
+            "strategy": data.get("strategy"),
+            "notes": data.get("notes")
+        }
+
+        log_id = kite_client.db.save_trade_log(log_data)
+
+        if log_id:
+            # Add to position monitoring
+            monitoring_data = {
+                "order_id": order_id,
+                "symbol": order["symbol"],
+                "quantity": quantity,
+                "entry_price": entry_price,
+                "current_price": entry_price,
+                "target_price": target_price,
+                "stop_loss": stop_loss,
+                "unrealized_pnl": 0
+            }
+            kite_client.db.save_monitored_position(monitoring_data)
+
+            return {
+                "success": True,
+                "log_id": log_id,
+                "message": "Trade logged successfully"
+            }
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "error": "Failed to save trade log"}
+            )
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@app.get("/api/trade-logs")
+async def get_trade_logs(limit: int = 100):
+    """Get all trade logs."""
+    if not kite_client:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Kite client not initialized"}
+        )
+
+    try:
+        logs = kite_client.db.get_all_trade_logs(limit=limit)
+        return {
+            "success": True,
+            "data": logs,
+            "count": len(logs)
+        }
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@app.get("/api/trade-logs/open")
+async def get_open_trade_logs():
+    """Get only open trade logs."""
+    if not kite_client:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Kite client not initialized"}
+        )
+
+    try:
+        logs = kite_client.db.get_open_trade_logs()
+        return {
+            "success": True,
+            "data": logs,
+            "count": len(logs)
+        }
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@app.get("/api/monitored-positions")
+async def get_monitored_positions():
+    """Get actively monitored positions with current prices."""
+    if not kite_client:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Kite client not initialized"}
+        )
+
+    try:
+        positions = kite_client.db.get_active_monitored_positions()
+        return {
+            "success": True,
+            "data": positions,
+            "count": len(positions)
         }
     except Exception as e:
         return JSONResponse(
