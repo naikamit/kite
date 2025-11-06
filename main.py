@@ -13,6 +13,15 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 import uvicorn
 
+# AI Coach imports
+from coach_system_prompt import SelfImprovingCoach, CoachMemory
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+    print("⚠️  anthropic package not installed. Run: pip install anthropic")
+
 # Initialize FastAPI app
 app = FastAPI(title="Kite Connect Analytics MVP")
 
@@ -987,6 +996,111 @@ async def save_trade_log(request: Request):
 
     except Exception as e:
         print(f"❌ Error saving trade log: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@app.post("/api/coach")
+async def ask_coach(request: Request):
+    """
+    AI Coaching endpoint using Claude.
+
+    Provides personalized trading psychology feedback based on:
+    - User's trading history and patterns
+    - Long-term conversational memory
+    - Current journey stage (activation → mastery)
+    """
+    if not kite_client:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Kite client not initialized"}
+        )
+
+    if not ANTHROPIC_AVAILABLE:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Anthropic API not available. Install: pip install anthropic"}
+        )
+
+    try:
+        data = await request.json()
+        user_message = data.get("message", "")
+        user_id = data.get("user_id", "default_user")
+        session_id = data.get("session_id")
+        trade_context = data.get("trade_context")  # Optional: trade details for post-trade coaching
+
+        print(f"💬 Coach request from {user_id}: {user_message[:50]}...")
+
+        # Get API key
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key or api_key == "your_anthropic_api_key_here":
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "success": False,
+                    "error": "ANTHROPIC_API_KEY not set in environment. Get your key at https://console.anthropic.com/"
+                }
+            )
+
+        # Initialize coach and memory
+        coach = SelfImprovingCoach(kite_client.db)
+        memory = CoachMemory(kite_client.db)
+
+        # Build personalized system prompt with memory
+        system_prompt = coach.build_prompt_with_memory(
+            user_id=user_id,
+            current_message=user_message,
+            memory_manager=memory
+        )
+
+        # Add trade context if provided (for post-trade coaching)
+        if trade_context:
+            user_message = f"{user_message}\n\nTrade context:\n{trade_context}"
+
+        # Call Claude API
+        client = anthropic.Anthropic(api_key=api_key)
+
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20241022",  # Latest Claude model
+            max_tokens=1024,
+            system=system_prompt,
+            messages=[
+                {"role": "user", "content": user_message}
+            ],
+            temperature=0.7
+        )
+
+        coach_response = response.content[0].text
+
+        print(f"🤖 Coach response: {coach_response[:100]}...")
+
+        # Save conversation to database
+        conversation_id = kite_client.db.save_conversation(
+            user_id=user_id,
+            user_message=user_message,
+            coach_response=coach_response,
+            session_id=session_id
+        )
+
+        # Extract and save any new memories from user message
+        memory.extract_and_save_insights(
+            user_id=user_id,
+            user_message=user_message,
+            use_llm=False  # Using keyword matching for now
+        )
+
+        return {
+            "success": True,
+            "response": coach_response,
+            "conversation_id": conversation_id
+        }
+
+    except Exception as e:
+        print(f"❌ Error in coach endpoint: {e}")
         import traceback
         traceback.print_exc()
         return JSONResponse(

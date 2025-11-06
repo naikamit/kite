@@ -29,8 +29,8 @@ def add_coach_memory_tables(db_path: str = "kite_data.db"):
     """
 
     if not os.path.exists(db_path):
-        print(f"❌ Database not found at {db_path}")
-        return False
+        print(f"⚠️  Database not found at {db_path}")
+        print(f"📁 Creating new database...")
 
     print(f"🔄 Adding memory layer tables to {db_path}...")
 

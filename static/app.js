@@ -930,7 +930,7 @@ function renderWizardStep() {
     if (!modal) return;
 
     const { currentStep, order } = wizardState;
-    const totalSteps = 4;
+    const totalSteps = 5;  // Added step 5 for coach chat
 
     let stepContent = '';
 
@@ -1114,6 +1114,36 @@ function renderWizardStep() {
         `;
     }
 
+    // Step 5: Chat with Coach
+    if (currentStep === 5) {
+        stepContent = `
+            <div class="wizard-step wizard-step-scrollable">
+                <h4>🧠 Chat with Your Coach</h4>
+                <div id="coach-chat-container" class="coach-chat-container">
+                    <div class="coach-initial-message" id="coach-initial-message">
+                        <div class="coach-message-header">
+                            <div class="coach-avatar">🎯</div>
+                            <div class="coach-name">Trading Coach</div>
+                        </div>
+                        <div class="coach-message-content" id="coach-initial-content">
+                            <div class="loading-animation">
+                                <span class="dot"></span>
+                                <span class="dot"></span>
+                                <span class="dot"></span>
+                            </div>
+                            <p class="loading-text">Analyzing your trade...</p>
+                        </div>
+                    </div>
+                    <div id="coach-chat-messages"></div>
+                </div>
+                <div class="coach-input-container">
+                    <textarea id="coach-input" rows="2" placeholder="Ask the coach anything..." disabled></textarea>
+                    <button class="btn btn-primary" onclick="sendCoachMessage()" disabled id="send-coach-btn">Send</button>
+                </div>
+            </div>
+        `;
+    }
+
     modal.innerHTML = `
         <div class="modal-content wizard-modal">
             <div class="modal-header">
@@ -1127,10 +1157,10 @@ function renderWizardStep() {
                 ${stepContent}
             </div>
             <div class="wizard-nav">
-                ${currentStep > 1 ? '<button class="btn btn-secondary" onclick="wizardPrevious()">← Back</button>' : '<button class="btn btn-secondary" onclick="closeLogModal()">Skip</button>'}
-                ${currentStep < totalSteps
+                ${currentStep > 1 && currentStep < 5 ? '<button class="btn btn-secondary" onclick="wizardPrevious()">← Back</button>' : (currentStep === 5 ? '' : '<button class="btn btn-secondary" onclick="closeLogModal()">Skip</button>')}
+                ${currentStep < 4
                     ? '<button class="btn btn-primary" onclick="wizardNext()">Next →</button>'
-                    : '<button class="btn btn-success" onclick="wizardSubmit()">Save Log</button>'}
+                    : (currentStep === 4 ? '<button class="btn btn-success" onclick="wizardNext()">Save & Continue →</button>' : '<button class="btn btn-primary" onclick="closeLogModal()">Done</button>')}
             </div>
         </div>
     `;
@@ -1138,6 +1168,11 @@ function renderWizardStep() {
     // Initialize R:R calculation if on step 3
     if (currentStep === 3) {
         setTimeout(() => updateRiskReward(), 100);
+    }
+
+    // Initialize coach chat if on step 5
+    if (currentStep === 5) {
+        setTimeout(() => initializeCoachChat(), 100);
     }
 }
 
@@ -1237,7 +1272,7 @@ function toggleEmotion(button) {
 }
 
 // Wizard navigation: Next
-function wizardNext() {
+async function wizardNext() {
     const { currentStep } = wizardState;
 
     // Validate current step before proceeding
@@ -1272,6 +1307,25 @@ function wizardNext() {
         }
     }
 
+    // Step 4 → 5: Save trade log before moving to coach chat
+    if (currentStep === 4) {
+        // Validate emotions
+        if (wizardState.data.emotions.length === 0) {
+            showToast('Please select at least one emotion', 'error');
+            return;
+        }
+
+        // Collect notes
+        const notesInput = document.getElementById('notes-input');
+        wizardState.data.notes = notesInput?.value.trim() || null;
+
+        // Save trade log
+        const success = await saveTradeLogToAPI();
+        if (!success) {
+            return; // Don't proceed if save failed
+        }
+    }
+
     // Move to next step
     wizardState.currentStep++;
     renderWizardStep();
@@ -1291,24 +1345,14 @@ function wizardPrevious() {
     renderWizardStep();
 }
 
-// Wizard submit
-async function wizardSubmit() {
-    // Validate at least one emotion is selected
-    if (wizardState.data.emotions.length === 0) {
-        showToast('Please select at least one emotion', 'error');
-        return;
-    }
-
-    // Collect data from step 4
-    const notesInput = document.getElementById('notes-input');
-    wizardState.data.notes = notesInput?.value.trim() || null;
-
+// Save trade log to API (extracted for step 4 → 5 transition)
+async function saveTradeLogToAPI() {
     const logData = {
         order_id: wizardState.orderId,
         target_price: wizardState.data.target_price,
         stop_loss: wizardState.data.stop_loss,
-        emotion: wizardState.data.emotions.join(', ') || null,  // Join multiple emotions
-        strategy: wizardState.data.setup,  // Using setup as strategy
+        emotion: wizardState.data.emotions.join(', ') || null,
+        strategy: wizardState.data.setup,
         notes: wizardState.data.notes
     };
 
@@ -1323,15 +1367,162 @@ async function wizardSubmit() {
 
         if (result.success) {
             showToast('Trade logged successfully!', 'success');
-            closeLogModal();
+            wizardState.logId = result.log_id;  // Store log ID for coach context
             loadUnloggedOrdersBanner();
             loadMonitoredPositions();
+            return true;
         } else {
             showToast(result.error || 'Failed to save log', 'error');
+            return false;
         }
     } catch (error) {
         console.error('Failed to submit trade log:', error);
         showToast('Failed to submit trade log', 'error');
+        return false;
+    }
+}
+
+// Initialize coach chat (called when step 5 is shown)
+async function initializeCoachChat() {
+    const order = wizardState.order;
+
+    // Build trade context for coach
+    const tradeContext = `
+Trade: ${order.symbol} ${order.action}
+Entry: ₹${order.entry_price}, Target: ₹${wizardState.data.target_price}, SL: ₹${wizardState.data.stop_loss}
+Quantity: ${order.quantity}
+Setup: ${wizardState.data.setup}
+Emotions: ${wizardState.data.emotions.join(', ')}
+Notes: ${wizardState.data.notes || 'None'}
+`.trim();
+
+    try {
+        const response = await fetch('/api/coach', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                message: "I just logged a trade. What do you think about it?",
+                trade_context: tradeContext,
+                user_id: "default_user"
+            })
+        });
+
+        const result = await response.json();
+
+        const contentDiv = document.getElementById('coach-initial-content');
+        if (result.success) {
+            contentDiv.innerHTML = `<p>${result.response}</p>`;
+
+            // Enable chat input
+            document.getElementById('coach-input').disabled = false;
+            document.getElementById('send-coach-btn').disabled = false;
+        } else {
+            contentDiv.innerHTML = `<p class="error-message">❌ ${result.error || 'Failed to get coaching feedback'}</p>`;
+        }
+    } catch (error) {
+        console.error('Failed to get coach feedback:', error);
+        const contentDiv = document.getElementById('coach-initial-content');
+        contentDiv.innerHTML = `<p class="error-message">❌ Failed to connect to coach. ${error.message}</p>`;
+    }
+}
+
+// Send additional message to coach
+async function sendCoachMessage() {
+    const input = document.getElementById('coach-input');
+    const message = input.value.trim();
+
+    if (!message) return;
+
+    // Disable input while processing
+    input.disabled = true;
+    document.getElementById('send-coach-btn').disabled = true;
+
+    // Add user message to chat
+    const chatMessages = document.getElementById('coach-chat-messages');
+    chatMessages.innerHTML += `
+        <div class="user-message">
+            <div class="user-message-content">${message}</div>
+        </div>
+    `;
+
+    // Clear input
+    input.value = '';
+
+    // Add loading indicator
+    chatMessages.innerHTML += `
+        <div class="coach-message" id="coach-loading">
+            <div class="coach-message-header">
+                <div class="coach-avatar">🎯</div>
+                <div class="coach-name">Trading Coach</div>
+            </div>
+            <div class="coach-message-content">
+                <div class="loading-animation">
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Scroll to bottom
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    try {
+        const response = await fetch('/api/coach', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                message: message,
+                user_id: "default_user"
+            })
+        });
+
+        const result = await response.json();
+
+        // Remove loading indicator
+        document.getElementById('coach-loading')?.remove();
+
+        if (result.success) {
+            chatMessages.innerHTML += `
+                <div class="coach-message">
+                    <div class="coach-message-header">
+                        <div class="coach-avatar">🎯</div>
+                        <div class="coach-name">Trading Coach</div>
+                    </div>
+                    <div class="coach-message-content">
+                        <p>${result.response}</p>
+                    </div>
+                </div>
+            `;
+        } else {
+            chatMessages.innerHTML += `
+                <div class="coach-message">
+                    <div class="coach-message-content error-message">
+                        ❌ ${result.error || 'Failed to get response'}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Scroll to bottom
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    } catch (error) {
+        console.error('Failed to send message to coach:', error);
+        document.getElementById('coach-loading')?.remove();
+
+        chatMessages.innerHTML += `
+            <div class="coach-message">
+                <div class="coach-message-content error-message">
+                    ❌ Failed to connect: ${error.message}
+                </div>
+            </div>
+        `;
+    } finally {
+        // Re-enable input
+        input.disabled = false;
+        document.getElementById('send-coach-btn').disabled = false;
+        input.focus();
     }
 }
 
