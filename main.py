@@ -59,18 +59,26 @@ def handle_order_update(order_data):
         order_data: Order update from KiteTicker
     """
     try:
-        print(f"🔔 Real-time order update: {order_data}")
+        print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print(f"🔔 WEBSOCKET ORDER UPDATE RECEIVED")
+        print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print(f"   Data: {json.dumps(order_data, indent=2)}")
 
         # Check if order is completed
         status = order_data.get("status")
+        print(f"   Status: {status}")
+
         if status in ["COMPLETE", "CANCELLED", "REJECTED"]:
             order_id = order_data.get("order_id")
+            symbol = order_data.get("tradingsymbol")
+
+            print(f"   ✅ Order {status}: {symbol} (ID: {order_id})")
 
             # Save order to database
             order_to_save = {
                 "order_id": order_id,
                 "trade_id": order_data.get("exchange_order_id"),
-                "symbol": order_data.get("tradingsymbol"),
+                "symbol": symbol,
                 "exchange": order_data.get("exchange"),
                 "action": order_data.get("transaction_type"),
                 "quantity": order_data.get("filled_quantity", 0),
@@ -82,7 +90,7 @@ def handle_order_update(order_data):
             }
 
             kite_client.db.save_order(order_to_save)
-            print(f"💾 Saved order {order_id} to database")
+            print(f"   💾 Saved order {order_id} to database")
 
             # Add to notification queue if completed successfully
             if status == "COMPLETE":
@@ -98,10 +106,19 @@ def handle_order_update(order_data):
                 # Only add if not already in queue
                 if not any(n["order_id"] == order_id for n in new_order_notifications):
                     new_order_notifications.append(notification)
-                    print(f"🔔 Added notification for order {order_id}")
+                    print(f"   🔔 Added to notification queue (Total: {len(new_order_notifications)})")
+                    print(f"   📬 Browser will pick this up on next /api/notifications poll")
+                else:
+                    print(f"   ⚠️ Notification already exists for this order")
+        else:
+            print(f"   ℹ️ Status '{status}' - Not adding notification (only COMPLETE/CANCELLED/REJECTED)")
+
+        print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
     except Exception as e:
         print(f"❌ Error handling order update: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def is_market_hours() -> bool:
@@ -113,21 +130,25 @@ def is_market_hours() -> bool:
 
 
 def sync_orders_job():
-    """Background job to sync orders from Kite API."""
+    """Background job to sync orders from Kite API (fallback for WebSocket)."""
     if not kite_client:
         return
 
     try:
-        print("📥 Syncing orders from Kite API...")
+        print(f"📥 [POLLING FALLBACK] Syncing orders from Kite API at {datetime.now().strftime('%H:%M:%S')}...")
         result = kite_client.sync_orders_to_db()
 
         if result.get("success"):
             new_completed = result.get("completed_orders", 0)
+            new_orders = result.get("new_orders", 0)
+
             if new_completed > 0:
-                print(f"✨ {new_completed} new completed order(s) detected!")
+                print(f"   ✨ {new_completed} new completed order(s) detected via polling!")
 
                 # Get unlogged orders for notifications
                 unlogged = kite_client.db.get_unlogged_orders(limit=10)
+                print(f"   📋 Found {len(unlogged)} unlogged order(s)")
+
                 for order in unlogged:
                     # Add to notification queue
                     notification = {
@@ -141,13 +162,20 @@ def sync_orders_job():
                     # Only add if not already in queue
                     if not any(n["order_id"] == order["order_id"] for n in new_order_notifications):
                         new_order_notifications.append(notification)
+                        print(f"   🔔 Added notification for {order['symbol']} (Order: {order['order_id']})")
+                    else:
+                        print(f"   ⚠️ Notification already exists for {order['symbol']}")
 
-            print(f"   Total new orders: {result.get('new_orders', 0)}")
+                print(f"   📬 Notification queue size: {len(new_order_notifications)}")
+
+            print(f"   ℹ️ Sync complete: {new_orders} new order(s), {new_completed} completed")
         else:
             print(f"⚠️ Order sync failed: {result.get('error')}")
 
     except Exception as e:
         print(f"❌ Order sync job error: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def monitor_positions_job():
@@ -804,10 +832,13 @@ async def get_raw_positions(days: int = 30, symbol: str = None):
 @app.get("/api/notifications")
 async def get_notifications():
     """Get pending order notifications for the user."""
+    count = len(new_order_notifications)
+    if count > 0:
+        print(f"📬 GET /api/notifications - Returning {count} notification(s)")
     return {
         "success": True,
         "notifications": new_order_notifications,
-        "count": len(new_order_notifications)
+        "count": count
     }
 
 
@@ -819,10 +850,15 @@ async def clear_notification(request: Request):
         order_id = data.get("order_id")
 
         global new_order_notifications
+        initial_count = len(new_order_notifications)
         new_order_notifications = [n for n in new_order_notifications if n["order_id"] != order_id]
+        cleared_count = initial_count - len(new_order_notifications)
+
+        print(f"🗑️ POST /api/notifications/clear - Cleared notification for order {order_id} ({cleared_count} removed)")
 
         return {"success": True}
     except Exception as e:
+        print(f"❌ Error clearing notification: {e}")
         return JSONResponse(
             status_code=500,
             content={"success": False, "error": str(e)}
@@ -867,8 +903,13 @@ async def save_trade_log(request: Request):
         target_price = float(data.get("target_price"))
         stop_loss = float(data.get("stop_loss"))
 
+        print(f"📝 POST /api/trade-log - Order {order_id}")
+        print(f"   Target: ₹{target_price}, SL: ₹{stop_loss}")
+        print(f"   Emotion: {data.get('emotion')}, Strategy: {data.get('strategy')}")
+
         # Validate required fields
         if not order_id or not target_price or not stop_loss:
+            print(f"❌ Validation failed: Missing required fields")
             return JSONResponse(
                 status_code=400,
                 content={"success": False, "error": "order_id, target_price, and stop_loss are required"}
@@ -877,10 +918,13 @@ async def save_trade_log(request: Request):
         # Get order details
         order = kite_client.db.get_order_by_id(order_id)
         if not order:
+            print(f"❌ Order {order_id} not found in database")
             return JSONResponse(
                 status_code=404,
                 content={"success": False, "error": "Order not found"}
             )
+
+        print(f"   Order found: {order['symbol']} {order['action']} @ ₹{order['entry_price']} (Qty: {order['quantity']})")
 
         # Calculate risk/reward
         entry_price = order["entry_price"]
@@ -895,6 +939,7 @@ async def save_trade_log(request: Request):
             reward_amount = abs(entry_price - target_price) * quantity
 
         risk_reward_ratio = reward_amount / risk_amount if risk_amount > 0 else 0
+        print(f"   R:R = 1:{risk_reward_ratio:.2f} (Risk: ₹{risk_amount:.2f}, Reward: ₹{reward_amount:.2f})")
 
         # Save trade log
         log_data = {
@@ -912,6 +957,8 @@ async def save_trade_log(request: Request):
         log_id = kite_client.db.save_trade_log(log_data)
 
         if log_id:
+            print(f"✅ Trade log saved with ID: {log_id}")
+
             # Add to position monitoring
             monitoring_data = {
                 "order_id": order_id,
@@ -924,6 +971,7 @@ async def save_trade_log(request: Request):
                 "unrealized_pnl": 0
             }
             kite_client.db.save_monitored_position(monitoring_data)
+            print(f"📊 Added {order['symbol']} to position monitoring")
 
             return {
                 "success": True,
@@ -931,12 +979,16 @@ async def save_trade_log(request: Request):
                 "message": "Trade logged successfully"
             }
         else:
+            print(f"❌ Failed to save trade log to database")
             return JSONResponse(
                 status_code=500,
                 content={"success": False, "error": "Failed to save trade log"}
             )
 
     except Exception as e:
+        print(f"❌ Error saving trade log: {e}")
+        import traceback
+        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"success": False, "error": str(e)}
