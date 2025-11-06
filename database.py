@@ -846,3 +846,332 @@ class TradingDatabase:
             except Exception as e:
                 print(f"Error deleting setting {key}: {e}")
                 return False
+
+    # Coach Memory Methods (for LLM coaching system)
+
+    def save_memory(self, user_id: str, memory_type: str, content: str,
+                   importance: int = 5, tags: str = "[]",
+                   emotional_weight: str = "neutral") -> int:
+        """
+        Save a long-term memory for coaching.
+
+        Args:
+            user_id: User identifier
+            memory_type: Type of memory ('insight', 'goal', 'fear', 'rule', 'context')
+            content: The memory content
+            importance: 1-10 scale of importance
+            tags: JSON array of tags
+            emotional_weight: 'positive', 'negative', or 'neutral'
+
+        Returns:
+            Memory ID if successful, 0 otherwise
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    INSERT INTO coach_memory
+                    (user_id, memory_type, content, importance, tags,
+                     emotional_weight, created_at, is_active)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                """, (
+                    user_id,
+                    memory_type,
+                    content,
+                    importance,
+                    tags,
+                    emotional_weight,
+                    datetime.now().isoformat()
+                ))
+                return cursor.lastrowid
+            except Exception as e:
+                print(f"Error saving memory: {e}")
+                return 0
+
+    def get_memories_by_user(self, user_id: str, active_only: bool = True,
+                            min_importance: int = 0) -> List[Dict]:
+        """
+        Get all memories for a user.
+
+        Args:
+            user_id: User identifier
+            active_only: Only return active memories
+            min_importance: Minimum importance threshold
+
+        Returns:
+            List of memory dictionaries
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            query = """
+                SELECT * FROM coach_memory
+                WHERE user_id = ?
+                AND importance >= ?
+            """
+            params = [user_id, min_importance]
+
+            if active_only:
+                query += " AND is_active = 1"
+
+            query += " ORDER BY importance DESC, created_at DESC"
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    def get_relevant_memories(self, user_id: str, keywords: List[str] = None,
+                             limit: int = 5) -> List[Dict]:
+        """
+        Get memories relevant to current context.
+
+        Args:
+            user_id: User identifier
+            keywords: List of keywords to search for
+            limit: Maximum number of memories to return
+
+        Returns:
+            List of most relevant memory dictionaries
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            if keywords:
+                # Build search query with keyword matching
+                keyword_conditions = " OR ".join([
+                    f"(content LIKE '%{kw}%' OR tags LIKE '%{kw}%')"
+                    for kw in keywords[:5]  # Limit to 5 keywords
+                ])
+
+                query = f"""
+                    SELECT * FROM coach_memory
+                    WHERE user_id = ?
+                    AND is_active = 1
+                    AND ({keyword_conditions})
+                    ORDER BY importance DESC, last_referenced ASC
+                    LIMIT ?
+                """
+                cursor.execute(query, (user_id, limit))
+            else:
+                # Return highest importance, least recently referenced
+                cursor.execute("""
+                    SELECT * FROM coach_memory
+                    WHERE user_id = ?
+                    AND is_active = 1
+                    ORDER BY importance DESC, last_referenced ASC
+                    LIMIT ?
+                """, (user_id, limit))
+
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    def update_memory_reference(self, memory_id: int) -> bool:
+        """
+        Update last_referenced timestamp and increment reference counter.
+
+        Args:
+            memory_id: ID of the memory that was referenced
+
+        Returns:
+            True if successful
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    UPDATE coach_memory
+                    SET last_referenced = ?,
+                        times_referenced = times_referenced + 1
+                    WHERE id = ?
+                """, (datetime.now().isoformat(), memory_id))
+                return cursor.rowcount > 0
+            except Exception as e:
+                print(f"Error updating memory reference: {e}")
+                return False
+
+    def archive_memory(self, memory_id: int) -> bool:
+        """Archive a memory (mark as inactive)."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    UPDATE coach_memory
+                    SET is_active = 0
+                    WHERE id = ?
+                """, (memory_id,))
+                return cursor.rowcount > 0
+            except Exception as e:
+                print(f"Error archiving memory: {e}")
+                return False
+
+    def save_conversation(self, user_id: str, user_message: str,
+                         coach_response: str, session_id: str = None,
+                         memories_used: str = "[]") -> int:
+        """
+        Save a coaching conversation.
+
+        Args:
+            user_id: User identifier
+            user_message: What the user said
+            coach_response: What the coach responded
+            session_id: Optional session grouping
+            memories_used: JSON array of memory IDs used
+
+        Returns:
+            Conversation ID if successful
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    INSERT INTO coach_conversations
+                    (user_id, user_message, coach_response, session_id,
+                     memories_used, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    user_id,
+                    user_message,
+                    coach_response,
+                    session_id,
+                    memories_used,
+                    datetime.now().isoformat()
+                ))
+                return cursor.lastrowid
+            except Exception as e:
+                print(f"Error saving conversation: {e}")
+                return 0
+
+    def get_recent_conversations(self, user_id: str, limit: int = 10,
+                                session_id: str = None) -> List[Dict]:
+        """
+        Get recent conversations for context.
+
+        Args:
+            user_id: User identifier
+            limit: Maximum number of conversations
+            session_id: Optional filter by session
+
+        Returns:
+            List of conversation dictionaries
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            if session_id:
+                cursor.execute("""
+                    SELECT * FROM coach_conversations
+                    WHERE user_id = ? AND session_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """, (user_id, session_id, limit))
+            else:
+                cursor.execute("""
+                    SELECT * FROM coach_conversations
+                    WHERE user_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """, (user_id, limit))
+
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    def save_feedback_effectiveness(self, user_id: str, conversation_id: int,
+                                   feedback_type: str, engagement_score: int,
+                                   behavior_changed: bool = False,
+                                   topic_tags: str = "[]") -> int:
+        """
+        Save feedback effectiveness data for meta-learning.
+
+        Args:
+            user_id: User identifier
+            conversation_id: ID of the conversation
+            feedback_type: Type of feedback given
+            engagement_score: 1-10 scale of user engagement
+            behavior_changed: Whether user acted on feedback
+            topic_tags: JSON array of topics
+
+        Returns:
+            Effectiveness record ID
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    INSERT INTO feedback_effectiveness
+                    (user_id, conversation_id, feedback_type, user_engagement_score,
+                     behavior_changed, topic_tags, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    user_id,
+                    conversation_id,
+                    feedback_type,
+                    engagement_score,
+                    behavior_changed,
+                    topic_tags,
+                    datetime.now().isoformat()
+                ))
+                return cursor.lastrowid
+            except Exception as e:
+                print(f"Error saving feedback effectiveness: {e}")
+                return 0
+
+    def get_feedback_stats(self, user_id: str, feedback_type: str = None) -> Dict:
+        """
+        Get statistics about feedback effectiveness.
+
+        Args:
+            user_id: User identifier
+            feedback_type: Optional filter by feedback type
+
+        Returns:
+            Dictionary with stats (avg_engagement, behavior_change_rate, count)
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            if feedback_type:
+                cursor.execute("""
+                    SELECT
+                        AVG(user_engagement_score) as avg_engagement,
+                        AVG(CASE WHEN behavior_changed = 1 THEN 1.0 ELSE 0.0 END) as change_rate,
+                        COUNT(*) as count
+                    FROM feedback_effectiveness
+                    WHERE user_id = ? AND feedback_type = ?
+                """, (user_id, feedback_type))
+            else:
+                cursor.execute("""
+                    SELECT
+                        feedback_type,
+                        AVG(user_engagement_score) as avg_engagement,
+                        AVG(CASE WHEN behavior_changed = 1 THEN 1.0 ELSE 0.0 END) as change_rate,
+                        COUNT(*) as count
+                    FROM feedback_effectiveness
+                    WHERE user_id = ?
+                    GROUP BY feedback_type
+                    ORDER BY change_rate DESC, avg_engagement DESC
+                """, (user_id,))
+
+            rows = cursor.fetchall()
+            if not rows:
+                return {}
+
+            if feedback_type:
+                row = rows[0]
+                return dict(row) if row else {}
+            else:
+                return {row["feedback_type"]: dict(row) for row in rows}
+
+    def get_trade_logs(self, user_id: str = None, limit: int = 100) -> List[Dict]:
+        """
+        Get trade logs for a user (for coach analysis).
+
+        Args:
+            user_id: Optional user filter (for multi-user support)
+            limit: Maximum number of logs to return
+
+        Returns:
+            List of trade log dictionaries with order details
+        """
+        # For now, we don't have user_id in trade_logs (single user system)
+        # But this method provides a consistent interface for the coach
+        return self.get_all_trade_logs(limit)

@@ -273,6 +273,287 @@ FEEDBACK_TYPES = {
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# COACH MEMORY CLASS (Long-term conversational memory)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class CoachMemory:
+    """
+    Manages long-term conversational memory for the coaching system.
+
+    This class:
+    - Extracts important insights from conversations using LLM
+    - Stores memories with importance scores and tags
+    - Retrieves relevant memories based on context
+    - Tracks which memories are most useful
+
+    Think of this as the coach's notebook where they write down everything
+    important the user tells them, then reference it later.
+    """
+
+    def __init__(self, db_client):
+        """
+        Initialize memory manager with database access.
+
+        Args:
+            db_client: Database client with coach_memory methods
+        """
+        self.db = db_client
+
+    def extract_and_save_insights(self, user_id: str, user_message: str,
+                                  use_llm: bool = True) -> Optional[int]:
+        """
+        Extract important information from user message and save as memory.
+
+        This is the "second LLM call" that analyzes the conversation to decide
+        what's worth remembering long-term.
+
+        Args:
+            user_id: User identifier
+            user_message: The user's message
+            use_llm: Whether to use LLM for extraction (if False, uses keyword matching)
+
+        Returns:
+            Memory ID if saved, None otherwise
+        """
+
+        if not use_llm:
+            # Simple keyword-based extraction (no LLM needed)
+            return self._extract_with_keywords(user_id, user_message)
+
+        # TODO: Implement LLM-based extraction when API is integrated
+        # For now, use keyword matching
+        return self._extract_with_keywords(user_id, user_message)
+
+    def _extract_with_keywords(self, user_id: str, user_message: str) -> Optional[int]:
+        """Extract memories using keyword patterns (no LLM needed)."""
+
+        message_lower = user_message.lower()
+
+        # Pattern matching for different memory types
+        memory_data = None
+
+        # GOALS: "I want to", "My goal is", "I'm trying to"
+        if any(phrase in message_lower for phrase in ["i want to", "my goal", "i'm trying to", "hoping to"]):
+            memory_data = {
+                "memory_type": "goal",
+                "content": user_message,
+                "importance": 8,
+                "tags": json.dumps(["goal", "intention"]),
+                "emotional_weight": "positive"
+            }
+
+        # FEARS: "I'm scared", "I'm afraid", "I lost", "trauma"
+        elif any(phrase in message_lower for phrase in ["scared", "afraid", "fear", "lost big", "trauma", "burned"]):
+            memory_data = {
+                "memory_type": "fear",
+                "content": user_message,
+                "importance": 9,
+                "tags": json.dumps(["fear", "past_experience"]),
+                "emotional_weight": "negative"
+            }
+
+        # RULES: "I won't", "never again", "I promise", "rule"
+        elif any(phrase in message_lower for phrase in ["i won't", "never again", "i promise", "my rule", "i'll never"]):
+            memory_data = {
+                "memory_type": "rule",
+                "content": user_message,
+                "importance": 8,
+                "tags": json.dumps(["rule", "commitment"]),
+                "emotional_weight": "neutral"
+            }
+
+        # CONTEXT: "I have", "my schedule", "I can only", "I work"
+        elif any(phrase in message_lower for phrase in ["i have a", "my schedule", "i can only", "i work", "family", "day job"]):
+            memory_data = {
+                "memory_type": "context",
+                "content": user_message,
+                "importance": 7,
+                "tags": json.dumps(["context", "constraints"]),
+                "emotional_weight": "neutral"
+            }
+
+        # INSIGHTS: "I noticed", "I realize", "pattern", "always"
+        elif any(phrase in message_lower for phrase in ["i noticed", "i realize", "pattern", "i always", "tends to"]):
+            memory_data = {
+                "memory_type": "insight",
+                "content": user_message,
+                "importance": 7,
+                "tags": json.dumps(["insight", "self_awareness"]),
+                "emotional_weight": "neutral"
+            }
+
+        # Save if we found something important
+        if memory_data and memory_data["importance"] >= 6:
+            memory_id = self.db.save_memory(
+                user_id=user_id,
+                memory_type=memory_data["memory_type"],
+                content=memory_data["content"],
+                importance=memory_data["importance"],
+                tags=memory_data["tags"],
+                emotional_weight=memory_data["emotional_weight"]
+            )
+
+            if memory_id:
+                print(f"💾 Saved {memory_data['memory_type']} memory (ID: {memory_id})")
+                return memory_id
+
+        return None
+
+    def get_relevant_memories(self, user_id: str, current_message: str,
+                             limit: int = 5) -> List[Dict]:
+        """
+        Retrieve memories relevant to the current conversation.
+
+        Uses simple keyword matching to find related memories.
+
+        Args:
+            user_id: User identifier
+            current_message: Current user message for context
+            limit: Maximum memories to return
+
+        Returns:
+            List of memory dictionaries
+        """
+
+        # Extract keywords from current message
+        keywords = self._extract_keywords(current_message)
+
+        # Get memories matching keywords
+        memories = self.db.get_relevant_memories(
+            user_id=user_id,
+            keywords=keywords,
+            limit=limit
+        )
+
+        # Update reference tracking
+        for memory in memories:
+            self.db.update_memory_reference(memory['id'])
+
+        return memories
+
+    def _extract_keywords(self, message: str) -> List[str]:
+        """Extract important keywords from message for memory search."""
+
+        message_lower = message.lower()
+
+        # Trading-specific keywords to look for
+        keyword_map = {
+            "position": ["position", "size", "scaling"],
+            "loss": ["loss", "losing", "lost", "down"],
+            "fear": ["fear", "scared", "afraid", "anxiety"],
+            "fomo": ["fomo", "missing out", "chase"],
+            "revenge": ["revenge", "make it back", "get even"],
+            "discipline": ["discipline", "rules", "plan", "strategy"],
+            "emotion": ["emotion", "feeling", "felt"],
+            "time": ["time", "morning", "afternoon", "schedule"],
+            "consistency": ["consistent", "streak", "daily", "routine"]
+        }
+
+        found_keywords = []
+
+        for key, variations in keyword_map.items():
+            if any(variation in message_lower for variation in variations):
+                found_keywords.append(key)
+
+        return found_keywords[:5]  # Limit to 5 keywords
+
+    def format_memories_for_prompt(self, memories: List[Dict]) -> str:
+        """
+        Format retrieved memories for inclusion in system prompt.
+
+        Args:
+            memories: List of memory dictionaries
+
+        Returns:
+            Formatted string for prompt injection
+        """
+
+        if not memories:
+            return ""
+
+        # Group by type
+        sections = {
+            "goal": [],
+            "fear": [],
+            "rule": [],
+            "context": [],
+            "insight": []
+        }
+
+        for mem in memories:
+            mem_type = mem.get('memory_type', 'insight')
+            if mem_type in sections:
+                sections[mem_type].append(mem['content'])
+
+        # Build formatted output
+        formatted = "\n\n" + "=" * 80
+        formatted += "\nLONG-TERM MEMORY (Reference these in your responses):\n"
+        formatted += "=" * 80 + "\n"
+
+        if sections["goal"]:
+            formatted += "\n🎯 THEIR GOALS:\n"
+            for goal in sections["goal"]:
+                formatted += f"  • {goal}\n"
+
+        if sections["fear"]:
+            formatted += "\n⚠️ FEARS & BLOCKS:\n"
+            for fear in sections["fear"]:
+                formatted += f"  • {fear}\n"
+
+        if sections["rule"]:
+            formatted += "\n📋 RULES THEY SET:\n"
+            for rule in sections["rule"]:
+                formatted += f"  • {rule}\n"
+
+        if sections["context"]:
+            formatted += "\n📌 IMPORTANT CONTEXT:\n"
+            for context in sections["context"]:
+                formatted += f"  • {context}\n"
+
+        if sections["insight"]:
+            formatted += "\n💡 THEIR INSIGHTS:\n"
+            for insight in sections["insight"]:
+                formatted += f"  • {insight}\n"
+
+        formatted += "=" * 80 + "\n"
+
+        return formatted
+
+    def get_memory_stats(self, user_id: str) -> Dict:
+        """Get statistics about stored memories."""
+
+        memories = self.db.get_memories_by_user(user_id)
+
+        if not memories:
+            return {"total": 0}
+
+        stats = {
+            "total": len(memories),
+            "by_type": {},
+            "avg_importance": 0,
+            "most_referenced": None
+        }
+
+        # Count by type
+        for memory in memories:
+            mem_type = memory.get('memory_type', 'unknown')
+            stats["by_type"][mem_type] = stats["by_type"].get(mem_type, 0) + 1
+
+        # Average importance
+        importances = [m.get('importance', 5) for m in memories]
+        stats["avg_importance"] = sum(importances) / len(importances)
+
+        # Most referenced
+        sorted_by_refs = sorted(memories,
+                               key=lambda x: x.get('times_referenced', 0),
+                               reverse=True)
+        if sorted_by_refs:
+            stats["most_referenced"] = sorted_by_refs[0].get('content', '')[:100]
+
+        return stats
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # SELF-IMPROVING COACH CLASS
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -437,6 +718,48 @@ META-LEARNING CONTEXT (Adapt your style based on what works):
         ]
 
         return "\n".join(prompt_parts)
+
+    def build_prompt_with_memory(self, user_id: str, current_message: str,
+                                 memory_manager: CoachMemory) -> str:
+        """
+        Build system prompt with long-term memory integration.
+
+        This is the FULL SYSTEM that combines:
+        1. Base prompt (identity + approach)
+        2. Journey stage (where they are)
+        3. Trade data context (what their data shows)
+        4. Long-term memories (what they've told you)
+        5. Meta-learning (what feedback works)
+
+        Args:
+            user_id: User identifier
+            current_message: Current conversation message for context
+            memory_manager: CoachMemory instance for retrieving memories
+
+        Returns:
+            Complete system prompt with memory context
+        """
+        # Get base prompt
+        base_prompt = self.build_prompt(user_id)
+
+        # Get relevant memories for this conversation
+        relevant_memories = memory_manager.get_relevant_memories(
+            user_id=user_id,
+            current_message=current_message,
+            limit=5
+        )
+
+        # Format memories for prompt
+        memory_context = memory_manager.format_memories_for_prompt(relevant_memories)
+
+        # Insert memory context before response guidelines
+        if memory_context:
+            # Split at response guidelines and insert memory
+            parts = base_prompt.split("RESPONSE GUIDELINES:")
+            if len(parts) == 2:
+                return parts[0] + memory_context + "\n\nRESPONSE GUIDELINES:" + parts[1]
+
+        return base_prompt
 
     def _get_response_guidelines(self) -> str:
         """Get guidelines for response format."""
@@ -806,6 +1129,7 @@ def track_feedback_effectiveness(
 
 __all__ = [
     'SelfImprovingCoach',
+    'CoachMemory',
     'BASE_SYSTEM_PROMPT',
     'JOURNEY_STAGES',
     'FEEDBACK_TYPES',
