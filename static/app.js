@@ -1653,3 +1653,124 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     console.log('✅ Dashboard initialized');
 });
+
+// ============================================================================
+// PWA FUNCTIONALITY
+// ============================================================================
+
+// Service Worker Registration
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker
+            .register('/static/service-worker.js')
+            .then((registration) => {
+                console.log('✅ ServiceWorker registered:', registration.scope);
+
+                // Check for updates periodically
+                setInterval(() => {
+                    registration.update();
+                }, 60000); // Check every minute
+            })
+            .catch((error) => {
+                console.error('❌ ServiceWorker registration failed:', error);
+            });
+    });
+}
+
+// PWA Install Prompt
+let deferredPrompt;
+const installButton = document.createElement('button');
+installButton.id = 'pwa-install-btn';
+installButton.className = 'btn btn-primary pwa-install-btn';
+installButton.style.display = 'none';
+installButton.innerHTML = `
+    <span class="btn-icon">📱</span>
+    Install App
+`;
+
+// Add install button to header
+window.addEventListener('DOMContentLoaded', () => {
+    const headerActions = document.querySelector('.header-actions');
+    if (headerActions) {
+        headerActions.insertBefore(installButton, headerActions.firstChild);
+    }
+});
+
+// Listen for beforeinstallprompt event
+window.addEventListener('beforeinstallprompt', (e) => {
+    console.log('💡 PWA install prompt available');
+
+    // Prevent the mini-infobar from appearing on mobile
+    e.preventDefault();
+
+    // Store the event for later use
+    deferredPrompt = e;
+
+    // Show install button
+    installButton.style.display = 'inline-flex';
+});
+
+// Handle install button click
+installButton.addEventListener('click', async () => {
+    if (!deferredPrompt) {
+        return;
+    }
+
+    // Show the install prompt
+    deferredPrompt.prompt();
+
+    // Wait for the user's response
+    const { outcome } = await deferredPrompt.userChoice;
+
+    if (outcome === 'accepted') {
+        console.log('✅ User accepted PWA install');
+        showToast('App installed! Check your home screen.', 'success');
+    } else {
+        console.log('❌ User dismissed PWA install');
+    }
+
+    // Clear the deferredPrompt
+    deferredPrompt = null;
+
+    // Hide the install button
+    installButton.style.display = 'none';
+});
+
+// Listen for app installation
+window.addEventListener('appinstalled', (e) => {
+    console.log('✅ PWA installed successfully');
+    showToast('App installed successfully!', 'success');
+
+    // Hide install button
+    installButton.style.display = 'none';
+
+    // Clear the deferredPrompt
+    deferredPrompt = null;
+});
+
+// Check if already running as PWA
+function isPWA() {
+    return (
+        window.matchMedia('(display-mode: standalone)').matches ||
+        window.navigator.standalone === true
+    );
+}
+
+// Show welcome message if running as PWA
+if (isPWA()) {
+    console.log('🚀 Running as PWA');
+
+    // Add PWA-specific styles or features
+    document.body.classList.add('pwa-mode');
+}
+
+// Online/Offline status
+window.addEventListener('online', () => {
+    console.log('🌐 Back online');
+    showToast('Connection restored', 'success');
+});
+
+window.addEventListener('offline', () => {
+    console.log('📴 Gone offline');
+    showToast('You are offline. Some features may be limited.', 'warning');
+});
