@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary -->
+    <color name="primary">#8AB4F8</color>
+    <color name="primary_dark">#669DF6</color>
+    <color name="primary_light">#AECBFA</color>
+
+    <!-- Secondary -->
+    <color name="secondary">#81C995</color>
+    <color name="secondary_dark">#5BB974</color>
+
+    <!-- Background -->
+    <color name="background">#1F1F1F</color>
+    <color name="surface">#2D2D2D</color>
+    <color name="surface_variant">#3C3C3C</color>
+
+    <!-- Text -->
+    <color name="text_primary">#E8EAED</color>
+    <color name="text_secondary">#9AA0A6</color>
+
+    <!-- Message bubbles -->
+    <color name="bubble_sent">#4A6FA5</color>
+    <color name="bubble_received">#3C3C3C</color>
+
+    <!-- Input -->
+    <color name="input_background">#3C3C3C</color>
+
+    <!-- Date chip -->
+    <color name="date_chip_bg">#3C3C3C</color>
+</resources>

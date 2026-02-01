@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Background circle -->
+    <path
+        android:fillColor="#1A73E8"
+        android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0" />
+    <!-- SMS bubble icon -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M70,36H38c-2.2,0 -4,1.8 -4,4v24l8,-8h28c2.2,0 4,-1.8 4,-4V40C74,37.8 72.2,36 70,36z" />
+    <!-- Dots inside bubble -->
+    <path
+        android:fillColor="#1A73E8"
+        android:pathData="M46,48m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
+    <path
+        android:fillColor="#1A73E8"
+        android:pathData="M54,48m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
+    <path
+        android:fillColor="#1A73E8"
+        android:pathData="M62,48m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
+</vector>
