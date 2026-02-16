@@ -15,7 +15,6 @@ import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.kite.sms.adapter.MessageAdapter
 import com.kite.sms.model.Message
-import com.kite.sms.util.NotificationHelper
 import com.kite.sms.util.SmsHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -60,9 +59,6 @@ class ConversationActivity : AppCompatActivity() {
         setupViews()
         setupAdapter()
         loadMessages()
-
-        // Cancel any notification for this thread
-        NotificationHelper.cancelNotification(this, threadId)
 
         // Mark thread as read
         lifecycleScope.launch(Dispatchers.IO) {
