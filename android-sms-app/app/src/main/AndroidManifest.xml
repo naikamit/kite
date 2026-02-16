@@ -97,6 +97,15 @@
             </intent-filter>
         </receiver>
 
+        <!-- Copy OTP action receiver -->
+        <receiver
+            android:name=".receiver.CopyOtpReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.kite.sms.COPY_OTP" />
+            </intent-filter>
+        </receiver>
+
         <!-- Headless SMS service (required for default SMS app) -->
         <service
             android:name=".service.HeadlessSmsService"

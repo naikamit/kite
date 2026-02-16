@@ -4,72 +4,35 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
-import com.kite.sms.util.ContactHelper
 import com.kite.sms.util.NotificationHelper
+import com.kite.sms.util.OtpExtractor
 
 /**
- * BroadcastReceiver for incoming SMS messages.
- * Handles SMS_RECEIVED broadcasts and shows notifications.
+ * BroadcastReceiver for incoming SMS.
+ * Only fires a notification for OTP messages. Everything else is ignored.
+ * Optimized for minimum latency: no contact lookup, no DB query, straight to notification.
  */
 class SmsReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
 
-        val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
-        if (messages.isNullOrEmpty()) return
+        val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
+        if (messages.isEmpty()) return
 
-        // Group messages by sender (multi-part messages come as separate SmsMessage objects)
-        val messageMap = mutableMapOf<String, StringBuilder>()
-        var timestamp = System.currentTimeMillis()
-
+        // Reassemble multi-part SMS per sender
+        val bodies = mutableMapOf<String, StringBuilder>()
         for (sms in messages) {
-            val sender = sms.displayOriginatingAddress ?: sms.originatingAddress ?: continue
-            messageMap.getOrPut(sender) { StringBuilder() }.append(sms.messageBody ?: "")
-            timestamp = sms.timestampMillis
+            val sender = sms.originatingAddress ?: continue
+            bodies.getOrPut(sender) { StringBuilder() }.append(sms.messageBody ?: "")
         }
 
-        // Show notification for each sender
-        for ((sender, body) in messageMap) {
-            val contactName = ContactHelper.getContactName(context, sender) ?: sender
+        for ((sender, body) in bodies) {
+            val text = body.toString()
+            val otp = OtpExtractor.extract(text) ?: continue
 
-            // Get thread ID for this sender
-            val threadId = getThreadId(context, sender)
-
-            // Show notification
-            NotificationHelper.showMessageNotification(
-                context = context,
-                threadId = threadId,
-                senderName = contactName,
-                senderAddress = sender,
-                messageBody = body.toString()
-            )
+            // OTP found — fire notification immediately
+            NotificationHelper.showOtpNotification(context, sender, otp, text)
         }
-    }
-
-    /**
-     * Get the thread ID for a given phone number by querying the SMS content provider.
-     */
-    private fun getThreadId(context: Context, address: String): Long {
-        try {
-            val cursor = context.contentResolver.query(
-                Telephony.Sms.CONTENT_URI,
-                arrayOf(Telephony.Sms.THREAD_ID),
-                "${Telephony.Sms.ADDRESS} = ?",
-                arrayOf(address),
-                "${Telephony.Sms.DATE} DESC LIMIT 1"
-            )
-
-            cursor?.use {
-                if (it.moveToFirst()) {
-                    return it.getLong(it.getColumnIndexOrThrow(Telephony.Sms.THREAD_ID))
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        // Return a hash-based ID if we can't find the thread
-        return address.hashCode().toLong()
     }
 }
